@@ -100,7 +100,7 @@ Each app will show a prompt on first launch asking you to open System Settings. 
 
 A few things can't be fully automated:
 
-- **1Password** — Sign in and enable the SSH agent: Settings → Developer → SSH Agent. Then your `~/.ssh/config` (managed by chezmoi) will use it automatically.
+- **Bitwarden** — Sign in to the desktop app and browser extension. If you use the Bitwarden SSH agent, enable it in Settings → SSH Agent.
 - **iTerm2 / WezTerm** — Set your font to **JetBrains Mono Nerd Font** in the terminal's preferences if it wasn't applied automatically.
 - **AeroSpace** — Launch it once. The TOML config at `~/.config/aerospace/aerospace.toml` (managed by chezmoi) is picked up automatically.
 
@@ -148,7 +148,7 @@ Everything else lives in the [dotfiles repo](https://github.com/joshroy01/dotfil
 - `.config/nvim/` — Neovim customizations (overlaid on LazyVim starter)
 - `.config/aerospace/` — tiling window manager config
 - `.gitconfig` — Git settings
-- `.ssh/config` — SSH host config (uses 1Password SSH agent)
+- `.ssh/config` — SSH host configurations
 
 ## Re-running after changes
 
