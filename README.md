@@ -7,29 +7,32 @@ A single script that takes a fresh Mac from factory state to a fully configured 
 The bootstrap script automates the following in order:
 
 1. Installs Xcode Command Line Tools (provides `git`, `clang`, etc.)
-2. Installs Homebrew
-3. Installs chezmoi and clones your [dotfiles repo](https://github.com/joshroy01/dotfiles)
-4. Applies dotfiles (places Brewfile, zshrc, mise config, starship config, etc.)
-5. Installs all packages from Brewfile (CLI tools, casks, fonts, App Store apps)
-6. Removes pre-installed bloatware (GarageBand, iMovie, Keynote, Numbers, Pages + sound libraries)
-7. Disables redundant built-in apps (rebuilds Dock with preferred apps, prints Screen Time guide)
-8. Installs Oh-My-Zsh (framework for zsh plugins and completions)
-9. Sets Homebrew zsh as the default shell (with ZDOTDIR → `~/.config/zsh/`)
-10. Configures macOS system defaults (Finder, Dock, keyboard, trackpad, screenshots, security)
-11. Sets 24-hour time system-wide (menu bar, lock screen)
-12. Configures power management (battery: 3m display/10m sleep; charger: 15m display/never sleep)
-13. Creates PARA directory structure (`0-inbox` through `4-archive` + Developer workspace)
-14. Installs LazyVim starter and overlays Neovim customizations from dotfiles
-15. Installs language runtimes via mise (`~/.config/mise/config.toml`: Node, Python, Go, Rust)
-16. Installs Rust components (rustfmt, clippy, rust-analyzer)
-17. Generates static zsh completion files (gh, chezmoi, just, uv, rustup, cargo, starship, atuin, docker)
-18. Verifies all shell tools are present
+2. Installs Homebrew (with bulletproof PATH setup for the current session)
+3. Installs bootstrap dependencies (`gh` and `chezmoi` via Homebrew)
+4. Authenticates with GitHub (browser-based OAuth — no SSH key needed)
+5. Clones dotfiles repo via chezmoi (authentication already handled)
+6. Applies dotfiles (places Brewfile, zshrc, mise config, starship config, etc.)
+7. Installs all packages from Brewfile (CLI tools, casks, fonts, App Store apps)
+8. Re-evaluates chezmoi templates (so .gitconfig detects delta, gh, difft, etc.)
+9. Removes pre-installed bloatware (GarageBand, iMovie, Keynote, Numbers, Pages + sound libraries)
+10. Disables redundant built-in apps (rebuilds Dock with preferred apps, prints Screen Time guide)
+11. Installs Oh-My-Zsh (framework for zsh plugins and completions)
+12. Sets Homebrew zsh as the default shell (with ZDOTDIR → `~/.config/zsh/`)
+13. Configures macOS system defaults (Finder, Dock, keyboard, trackpad, screenshots, security)
+14. Sets 24-hour time system-wide (menu bar, lock screen)
+15. Configures power management (battery: 3m display/10m sleep; charger: 15m display/never sleep)
+16. Creates PARA directory structure (`0-inbox` through `4-archive` + Developer workspace)
+17. Installs LazyVim starter and overlays Neovim customizations from dotfiles
+18. Installs language runtimes via mise (`~/.config/mise/config.toml`: Node, Python, Go, Rust)
+19. Installs Rust components (rustfmt, clippy, rust-analyzer)
+20. Generates static zsh completion files (gh, chezmoi, just, uv, rustup, cargo, starship, atuin, docker)
+21. Verifies all shell tools are present
 
 ## Prerequisites
 
-A Mac. That's it. Everything else is installed by the script.
+A Mac and a GitHub account. That's it. Everything else is installed by the script.
 
-If your dotfiles repo is **private**, you'll need a [GitHub personal access token](https://github.com/settings/tokens) ready to paste when prompted — or you can authenticate with the GitHub CLI first (the script will guide you if the clone fails).
+The script handles GitHub authentication automatically — it installs the GitHub CLI, walks you through browser-based login, and configures git's credential helper before attempting to clone your dotfiles. No SSH keys, personal access tokens, or manual setup required.
 
 ## Full setup walkthrough
 
@@ -58,46 +61,35 @@ The script will pause and remind you if it detects `mas` entries and you aren't 
 Open **Terminal** (Spotlight → "Terminal") and run:
 
 ```bash
-# Option A: Download and run just the bootstrap script
+# Option A: One-liner (download and run)
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/joshroy01/bootstrap/main/bootstrap.sh)"
 ```
 
 ```bash
-# Option B: Download the entire bootstrap repo (if it contains other files)
-mkdir ~/bootstrap
-curl -fsSL https://github.com/joshroy01/bootstrap/archive/main.tar.gz | tar xz -C ~/bootstrap
-cd ~/bootstrap
-bash bootstrap.sh
-```
-
-Or if you prefer to inspect before running:
-
-```bash
-mkdir ~/bootstrap
-curl -fsSL https://github.com/joshroy01/bootstrap/archive/main.tar.gz | tar xz -C ~/bootstrap
-cd ~/bootstrap
+# Option B: Download the repo first (inspect before running)
+curl -fsSL https://github.com/joshroy01/bootstrap/archive/main.tar.gz | tar xz
+cd bootstrap-main
 less bootstrap.sh          # review it
 bash bootstrap.sh          # run it
 ```
 
-> **Note:** Option B uses GitHub's tarball endpoint to download the entire repo as an archive. This doesn't require `git` (which isn't available until Xcode CLI tools are installed).
+> **Note:** Option B uses GitHub's tarball endpoint — no `git` required (it isn't available until Xcode CLI tools install).
 
 **What to expect:**
 
 - **Xcode CLI tools** — a system dialog will appear. Click "Install" and wait (2–5 minutes).
 - **Homebrew** — prompts for your password once (needs `sudo` to create `/opt/homebrew`).
-- **Private dotfiles repo** — if the clone fails, the script will tell you to run `brew install gh && gh auth login` and re-run.
+- **GitHub authentication** — the script installs `gh`, then opens your browser for OAuth login. You'll see a one-time code in the terminal — enter it in the browser to authorize. This takes about 30 seconds. Once authenticated, the script configures git to use `gh` as a credential helper, so all subsequent git operations (including chezmoi's dotfiles clone) work automatically.
+- **Chezmoi prompts** — you'll be asked for your name, email, GitHub username, and preferred editor. These values are stored in `~/.config/chezmoi/chezmoi.toml` and used to template your dotfiles.
+- **Brewfile** — first run takes 10–30 minutes depending on your connection. Cask installs may trigger macOS security prompts.
+- **Template re-evaluation** — after the Brewfile installs all tools, chezmoi re-renders templates so your `.gitconfig` picks up delta, gh, difft, and your `.chezmoi.toml` detects cursor/nvim.
 - **Oh-My-Zsh** — installed with `KEEP_ZSHRC=yes` so it doesn't overwrite your chezmoi-managed `.zshrc`.
 - **Default shell change** — prompts for your password once (`chsh` requires it).
-- **Brewfile** — first run takes 10–30 minutes depending on your connection. Cask installs may trigger macOS security prompts.
 - **Bloatware removal** — deletes GarageBand, iMovie, Keynote, Numbers, Pages and their sound libraries. These may return after major macOS updates; re-run to clean up.
-- **Dock rebuild** — the Dock is cleared and rebuilt with your preferred apps. If an app isn't installed yet, it's skipped.
-- **Screen Time** — the script prints instructions for manually disabling built-in apps via Screen Time (can't be automated via CLI due to SIP).
-- **mise runtimes** — installs Node, Python, Go, and Rust as defined in `~/.config/mise/config.toml` (applied by chezmoi).
-- **Zsh completions** — generated as static files in `~/.config/zsh/completions/` for fast shell startup.
+- **Dock rebuild** — the Dock is cleared and rebuilt with your preferred apps only.
 - **Neovim plugins** — headless install runs silently. If it has issues, plugins finish installing on first launch.
 
-The script is **idempotent** — you can re-run it safely. It skips steps that are already complete.
+The script is **idempotent** — you can re-run it safely. It skips steps that are already complete (authenticated, installed, cloned, etc.).
 
 ### Step 4: Restart your terminal
 
@@ -150,6 +142,14 @@ Atuin owns `Ctrl-R` (history search). fzf handles `Ctrl-T` (file search) and `Al
 **Bitwarden:**
 - Sign in to the desktop app and browser extension
 - If you use the Bitwarden SSH agent, enable it in Settings → SSH Agent
+
+**SSH keys (optional, post-bootstrap):**
+
+The bootstrap uses HTTPS for the initial dotfiles clone (via `gh` OAuth). Your `.gitconfig` includes URL rewrites that switch GitHub to SSH for day-to-day work. To enable SSH:
+
+1. Generate a key: `ssh-keygen -t ed25519 -C "your-email@example.com"`
+2. Add to GitHub: `gh ssh-key add ~/.ssh/id_ed25519.pub --title "MacBook"`
+3. Or use Bitwarden's SSH agent if you prefer managed keys
 
 **Karabiner-Elements:**
 - Launch it and approve both the Accessibility and Input Monitoring permission prompts
@@ -209,6 +209,9 @@ trash --version           # safe rm
 
 # Editor
 nvim --version            # Neovim
+
+# GitHub auth
+gh auth status            # should show "Logged in"
 
 # Dotfiles
 chezmoi status            # should be empty if everything applied
@@ -276,16 +279,23 @@ bash <(curl -fsSL https://raw.githubusercontent.com/joshroy01/bootstrap/main/boo
 
 ## Troubleshooting
 
-**"Failed to clone dotfiles repo"**
-Your dotfiles repo is private and you haven't authenticated. Run:
+**GitHub authentication failed / browser didn't open**
+If `gh auth login --web` can't open a browser (e.g., SSH session), authenticate manually:
 ```bash
-brew install gh
-gh auth login
+gh auth login               # interactive mode with protocol selection
+gh auth setup-git           # configure git credential helper
 ```
 Then re-run the bootstrap script.
 
 **"Brewfile contains Mac App Store apps"**
 Open App Store and sign in with your Apple ID, then press Enter in the terminal to continue.
+
+**`brew` not found after installation**
+The script handles this with `hash -r` and PATH fallbacks. If you're running commands manually after a failed bootstrap, source Homebrew's environment:
+```bash
+eval "$(/opt/homebrew/bin/brew shellenv)"    # Apple Silicon
+eval "$(/usr/local/bin/brew shellenv)"       # Intel
+```
 
 **`_arguments:comparguments:327: can only be called from completion function`**
 Stale completion cache. Run:
@@ -312,4 +322,7 @@ Set your terminal font to a Nerd Font (JetBrains Mono Nerd Font or MesloLGS NF) 
 The `trash` formula is keg-only. Verify `exports/main.zsh` adds `$HOMEBREW_PREFIX/opt/trash/bin` to PATH, then `exec zsh`.
 
 **Completions not working for a tool**
-Run `generate-completions` to regenerate static completion files. If a specific tool still lacks completions, check `brew --prefix)/share/zsh/site-functions/` for a `_toolname` file.
+Run `generate-completions` to regenerate static completion files. If a specific tool still lacks completions, check `$(brew --prefix)/share/zsh/site-functions/` for a `_toolname` file.
+
+**SSH not working for git push after bootstrap**
+The bootstrap uses HTTPS for the initial clone. Your `.gitconfig` rewrites GitHub URLs to SSH, so subsequent operations need an SSH key. See "SSH keys (optional, post-bootstrap)" in Step 6 above.

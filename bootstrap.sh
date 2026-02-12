@@ -12,21 +12,23 @@
 # What it does (in order):
 #   1.  Preflight checks (macOS, architecture)
 #   2.  Installs Xcode Command Line Tools
-#   3.  Installs Homebrew
-#   4.  Installs chezmoi and clones dotfiles
-#   5.  Applies dotfiles (Brewfile, zshrc, mise config, starship, etc.)
-#   6.  Installs packages from Brewfile
-#   7.  Removes pre-installed bloatware (iWork/iLife apps)
-#   8.  Disables built-in Apple apps (removes from Dock)
-#   9.  Installs Oh-My-Zsh
-#   10. Sets default shell to Homebrew zsh
-#   11. Configures macOS defaults (incl. 24hr time, power management)
-#   12. Creates PARA directory structure
-#   13. Sets up Neovim with LazyVim
-#   14. Installs language runtimes (mise) + Rust components
-#   15. Sets up zsh completion system
-#   16. Verifies shell tool installation
-#   17. Post-install hooks (fonts, permissions, atuin, Screen Time reminder)
+#   3.  Installs Homebrew (with bulletproof PATH setup)
+#   4.  Installs bootstrap dependencies (gh, chezmoi)
+#   5.  Authenticates with GitHub (browser-based OAuth via gh)
+#   6.  Clones dotfiles repo via chezmoi
+#   7.  Applies dotfiles (Brewfile, zshrc, mise config, starship, etc.)
+#   8.  Installs packages from Brewfile + re-evaluates chezmoi templates
+#   9.  Removes pre-installed bloatware (iWork/iLife apps)
+#   10. Disables built-in Apple apps (removes from Dock)
+#   11. Installs Oh-My-Zsh
+#   12. Sets default shell to Homebrew zsh
+#   13. Configures macOS defaults (incl. 24hr time, power management)
+#   14. Creates PARA directory structure
+#   15. Sets up Neovim with LazyVim
+#   16. Installs language runtimes (mise) + Rust components
+#   17. Sets up zsh completion system
+#   18. Verifies shell tool installation
+#   19. Post-install hooks (fonts, permissions, atuin, Screen Time reminder)
 #
 # The script is idempotent — safe to re-run at any time.
 # ==============================================================================
@@ -128,26 +130,47 @@ install_homebrew() {
     else
         info "Installing Homebrew..."
         /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-
-        # Add to PATH for this session
-        eval "$($HOMEBREW_PREFIX/bin/brew shellenv)"
         success "Homebrew installed"
     fi
 
+    # Bulletproof PATH setup for this session.
+    # eval "$(brew shellenv)" alone isn't enough — bash's command hash table
+    # can cache old lookups, and the shell may not re-scan PATH immediately.
+    # We source shellenv AND clear the hash, then verify with the absolute path.
+    eval "$($HOMEBREW_PREFIX/bin/brew shellenv)"
+    hash -r  # Clear bash's command lookup cache
+
     if ! command_exists brew; then
-        error "Homebrew installation failed"
+        # Last resort: force the absolute path into this session
+        export PATH="$HOMEBREW_PREFIX/bin:$HOMEBREW_PREFIX/sbin:$PATH"
+        hash -r
     fi
 
+    if ! command_exists brew; then
+        error "Homebrew installation failed — brew not found in PATH"
+    fi
+
+    success "Homebrew on PATH: $(command -v brew)"
     brew --version
 }
 
 # ------------------------------------------------------------------------------
-# 4. Chezmoi & Dotfiles
+# 4. Bootstrap Dependencies (gh + chezmoi)
 # ------------------------------------------------------------------------------
 
-install_chezmoi() {
-    section "Chezmoi & Dotfiles"
+install_bootstrap_deps() {
+    section "Bootstrap Dependencies"
 
+    # gh (GitHub CLI) — needed to authenticate with GitHub before cloning
+    # private dotfiles repo. Must be installed BEFORE chezmoi init.
+    if ! command_exists gh; then
+        info "Installing GitHub CLI..."
+        brew install gh
+    else
+        success "GitHub CLI already installed"
+    fi
+
+    # chezmoi — dotfiles manager
     if ! command_exists chezmoi; then
         info "Installing chezmoi..."
         brew install chezmoi
@@ -155,23 +178,75 @@ install_chezmoi() {
         success "Chezmoi already installed"
     fi
 
+    # Refresh hash after installing new binaries
+    hash -r
+
+    # Verify both are on PATH
+    command_exists gh      || error "gh not found after install"
+    command_exists chezmoi || error "chezmoi not found after install"
+
+    success "gh $(gh --version | head -1 | awk '{print $3}')"
+    success "chezmoi $(chezmoi --version | awk '{print $3}')"
+}
+
+# ------------------------------------------------------------------------------
+# 5. GitHub Authentication
+# ------------------------------------------------------------------------------
+
+authenticate_github() {
+    section "GitHub Authentication"
+
+    # Check if already authenticated
+    if gh auth status &>/dev/null 2>&1; then
+        success "Already authenticated with GitHub"
+        gh auth status 2>&1 | grep -E "Logged in|Token" | head -2 | while read -r line; do
+            info "  $line"
+        done
+    else
+        info "Authenticating with GitHub..."
+        info "This will open a browser window for OAuth login."
+        echo ""
+
+        # --git-protocol https: avoids SSH key setup on a fresh machine.
+        #   The dotfiles .gitconfig has SSH URL rewrites, but those aren't
+        #   applied yet — we need HTTPS to work NOW for the initial clone.
+        # --web: skips interactive protocol/host menus, goes straight to browser.
+        # < /dev/tty: required when script is piped via curl | bash.
+        gh auth login \
+            --hostname github.com \
+            --git-protocol https \
+            --web \
+            < /dev/tty
+
+        if ! gh auth status &>/dev/null 2>&1; then
+            error "GitHub authentication failed. Cannot clone private dotfiles repo."
+        fi
+
+        success "Authenticated with GitHub"
+    fi
+
+    # Configure git to use gh as credential helper.
+    # This makes `git clone https://github.com/...` work for private repos
+    # by delegating credential lookup to gh's OAuth token.
+    gh auth setup-git
+    success "Git credential helper configured (gh)"
+}
+
+# ------------------------------------------------------------------------------
+# 6. Chezmoi & Dotfiles
+# ------------------------------------------------------------------------------
+
+install_chezmoi() {
+    section "Chezmoi & Dotfiles"
+
     if [[ -d "$CHEZMOI_SOURCE" ]]; then
         info "Chezmoi source already exists. Pulling latest..."
         chezmoi update
     else
         info "Initializing chezmoi from $DOTFILES_REPO..."
         # < /dev/tty: chezmoi's promptStringOnce reads stdin for interactive
-        # input. When running via `curl | bash`, stdin is the pipe, so we
-        # redirect from /dev/tty to ensure prompts work.
-        if ! chezmoi init "$DOTFILES_REPO" < /dev/tty; then
-            echo ""
-            warn "Failed to clone dotfiles repo."
-            warn "If the repo is private, authenticate first:"
-            echo "    brew install gh && gh auth login"
-            echo ""
-            warn "Then re-run this script."
-            error "Cannot continue without dotfiles."
-        fi
+        # input. When running via `curl | bash`, stdin is the pipe.
+        chezmoi init "$DOTFILES_REPO" < /dev/tty
     fi
 
     success "Chezmoi initialized"
@@ -201,7 +276,7 @@ apply_dotfiles() {
 }
 
 # ------------------------------------------------------------------------------
-# 5. Brewfile Installation
+# 7. Brewfile Installation
 # ------------------------------------------------------------------------------
 
 install_brewfile() {
@@ -233,17 +308,18 @@ install_brewfile() {
 
     success "All packages installed"
 
-    # Re-evaluate chezmoi templates now that tools are installed.
-    # .chezmoi.toml.tmpl uses lookPath for cursor/nvim/vim — needs re-init.
-    # .gitconfig.tmpl uses lookPath for delta/gh/difft — needs re-apply.
+    # Re-evaluate chezmoi templates now that all tools are installed.
+    # First pass rendered templates with a partial toolchain (only gh + chezmoi).
+    # Now delta, difft, cursor, nvim, etc. are installed, so lookPath calls
+    # in .chezmoi.toml.tmpl and .gitconfig.tmpl will find them.
     info "Re-evaluating chezmoi templates with full toolchain..."
-    chezmoi init --force
-    chezmoi apply --verbose
+    chezmoi init --force       # Re-evaluate .chezmoi.toml.tmpl (editor detection)
+    chezmoi apply --verbose    # Re-render .gitconfig.tmpl (delta, gh, difft blocks)
     success "Dotfiles re-applied (templates now detect delta, gh, cursor, etc.)"
 }
 
 # ------------------------------------------------------------------------------
-# 6. Remove Pre-installed Bloatware
+# 8. Remove Pre-installed Bloatware
 # ------------------------------------------------------------------------------
 
 remove_bloatware() {
@@ -279,7 +355,7 @@ remove_bloatware() {
 }
 
 # ------------------------------------------------------------------------------
-# 7. Disable Built-in Apple Apps
+# 9. Disable Built-in Apple Apps
 # ------------------------------------------------------------------------------
 
 disable_builtin_apps() {
@@ -352,7 +428,7 @@ disable_builtin_apps() {
 }
 
 # ------------------------------------------------------------------------------
-# 8. Oh-My-Zsh
+# 10. Oh-My-Zsh
 # ------------------------------------------------------------------------------
 
 install_oh_my_zsh() {
@@ -370,7 +446,7 @@ install_oh_my_zsh() {
 }
 
 # ------------------------------------------------------------------------------
-# 9. Shell Configuration
+# 11. Shell Configuration
 # ------------------------------------------------------------------------------
 
 configure_shell() {
@@ -410,7 +486,7 @@ configure_shell() {
 }
 
 # ------------------------------------------------------------------------------
-# 10. macOS Defaults
+# 12. macOS Defaults
 # ------------------------------------------------------------------------------
 
 configure_macos_defaults() {
@@ -527,7 +603,7 @@ configure_macos_defaults() {
 }
 
 # ------------------------------------------------------------------------------
-# 11. PARA Directory Structure
+# 13. PARA Directory Structure
 # ------------------------------------------------------------------------------
 
 create_directory_structure() {
@@ -563,7 +639,7 @@ create_directory_structure() {
 }
 
 # ------------------------------------------------------------------------------
-# 12. Neovim Configuration (LazyVim)
+# 14. Neovim Configuration (LazyVim)
 # ------------------------------------------------------------------------------
 
 setup_neovim() {
@@ -606,7 +682,7 @@ setup_neovim() {
 }
 
 # ------------------------------------------------------------------------------
-# 13. Language Runtimes (mise)
+# 15. Language Runtimes (mise)
 # ------------------------------------------------------------------------------
 
 setup_mise() {
@@ -644,7 +720,7 @@ setup_mise() {
 }
 
 # ------------------------------------------------------------------------------
-# 14. Zsh Completion System
+# 16. Zsh Completion System
 # ------------------------------------------------------------------------------
 
 setup_completions() {
@@ -698,7 +774,7 @@ setup_completions() {
 }
 
 # ------------------------------------------------------------------------------
-# 15. Shell Tool Verification
+# 17. Shell Tool Verification
 # ------------------------------------------------------------------------------
 
 verify_shell_tools() {
@@ -742,7 +818,7 @@ verify_shell_tools() {
 }
 
 # ------------------------------------------------------------------------------
-# 16. Post-Install Hooks
+# 18. Post-Install Hooks
 # ------------------------------------------------------------------------------
 
 post_install() {
@@ -836,7 +912,9 @@ print_summary() {
 ║                                                                              ║
 ║  WHAT WAS SET UP:                                                            ║
 ║                                                                              ║
-║  ✓ Xcode CLI Tools, Homebrew, chezmoi dotfiles                               ║
+║  ✓ Xcode CLI Tools, Homebrew (with PATH configured)                          ║
+║  ✓ GitHub CLI authenticated + git credential helper                          ║
+║  ✓ Chezmoi dotfiles cloned, applied, and re-evaluated                        ║
 ║  ✓ All Brewfile packages (CLI tools, casks, fonts, App Store apps)           ║
 ║  ✓ Removed bloatware (GarageBand, iMovie, Keynote, Numbers, Pages)           ║
 ║  ✓ Rebuilt Dock with preferred apps, disabled redundant built-in apps        ║
@@ -890,6 +968,8 @@ main() {
     preflight_checks
     install_xcode_cli
     install_homebrew
+    install_bootstrap_deps
+    authenticate_github
     install_chezmoi
     apply_dotfiles
     install_brewfile
