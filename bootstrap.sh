@@ -320,7 +320,25 @@ install_brewfile() {
     info "Installing packages from Brewfile..."
     info "This may take 10–30 minutes on first run..."
 
+    # Temporarily disable the SSH URL rewrite from .gitconfig.
+    # Dotfiles set `url.git@github.com:.insteadOf = https://github.com/`
+    # which breaks Homebrew taps on a fresh machine with no SSH key.
+    # The gh credential helper (configured in stage 5) handles HTTPS auth.
+    local ssh_rewrite
+    ssh_rewrite=$(git config --global --get url.git@github.com:.insteadOf 2>/dev/null || true)
+
+    if [[ -n "$ssh_rewrite" ]]; then
+        info "Temporarily disabling git SSH URL rewrite for Homebrew taps..."
+        git config --global --unset url.git@github.com:.insteadOf
+    fi
+
     brew bundle install --file="$BREWFILE_PATH" --verbose
+
+    # Restore the SSH rewrite now that taps are cloned
+    if [[ -n "$ssh_rewrite" ]]; then
+        git config --global url.git@github.com:.insteadOf "$ssh_rewrite"
+        success "Git SSH URL rewrite restored"
+    fi
 
     # Handle keg-only formulae that need PATH
     if brew list trash &>/dev/null 2>&1; then
