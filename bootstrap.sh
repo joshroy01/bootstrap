@@ -347,6 +347,29 @@ ensure_app_management_permission() {
 install_brewfile() {
     section "Installing Packages from Brewfile"
 
+    # Install Xcode via Mac App Store before the Brewfile runs.
+    # Xcode must be installed AND license-accepted before any formula that
+    # links against Xcode frameworks (swiftlint, swiftformat, gcc, llvm, etc.).
+    # Handling this outside the Brewfile avoids the mid-install license failure
+    # that breaks all subsequent installs.
+    if ! mdfind "kMDItemCFBundleIdentifier == com.apple.dt.Xcode" 2>/dev/null | grep -q "Xcode"; then
+        info "Installing Xcode from Mac App Store (this may take a while)..."
+        mas install 497799835  # Xcode
+    else
+        success "Xcode already installed"
+    fi
+
+    # Accept the Xcode license non-interactively.
+    # This is required even if Xcode was already installed — a major version
+    # update resets the license acceptance state.
+    if /usr/bin/xcrun clang 2>&1 | grep -q "license"; then
+        info "Accepting Xcode license..."
+        sudo xcodebuild -license accept
+        success "Xcode license accepted"
+    else
+        success "Xcode license already accepted"
+    fi
+
     if [[ ! -f "$BREWFILE_PATH" ]]; then
         error "Brewfile not found at $BREWFILE_PATH. Did chezmoi apply correctly?"
     fi
@@ -1111,6 +1134,12 @@ main() {
     echo -e "${BOLD}║              macOS Bootstrap Script                              ║${NC}"
     echo -e "${BOLD}╚══════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
+
+    # Prompt for sudo upfront and keep the credential cached for the
+    # duration of the script. Prevents repeated password prompts when
+    # sudo calls are spread across stages separated by long installs.
+    sudo -v
+    while true; do sudo -n true; sleep 60; kill -0 "$$" || exit; done 2>/dev/null &
 
     preflight_checks
     install_xcode_cli
