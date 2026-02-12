@@ -320,24 +320,26 @@ install_brewfile() {
     info "Installing packages from Brewfile..."
     info "This may take 10–30 minutes on first run..."
 
-    # Temporarily disable the SSH URL rewrite from .gitconfig.
-    # Dotfiles set `url.git@github.com:.insteadOf = https://github.com/`
-    # which breaks Homebrew taps on a fresh machine with no SSH key.
-    # The gh credential helper (configured in stage 5) handles HTTPS auth.
-    local ssh_rewrite
-    ssh_rewrite=$(git config --global --get url.git@github.com:.insteadOf 2>/dev/null || true)
+    # Temporarily disable git SSH URL rewrites for Homebrew taps.
+    # The .gitconfig may have multiple insteadOf values under the same
+    # [url] section (e.g., https://github.com/ and gh:), so we must use
+    # --get-all / --unset-all to handle them correctly.
+    local ssh_rewrites
+    ssh_rewrites=$(git config --global --get-all url.git@github.com:.insteadOf 2>/dev/null || true)
 
-    if [[ -n "$ssh_rewrite" ]]; then
+    if [[ -n "$ssh_rewrites" ]]; then
         info "Temporarily disabling git SSH URL rewrite for Homebrew taps..."
-        git config --global --unset url.git@github.com:.insteadOf
+        git config --global --unset-all url.git@github.com:.insteadOf
     fi
 
     brew bundle install --file="$BREWFILE_PATH" --verbose
 
-    # Restore the SSH rewrite now that taps are cloned
-    if [[ -n "$ssh_rewrite" ]]; then
-        git config --global url.git@github.com:.insteadOf "$ssh_rewrite"
-        success "Git SSH URL rewrite restored"
+    # Restore all SSH rewrites now that taps are cloned
+    if [[ -n "$ssh_rewrites" ]]; then
+        while IFS= read -r rewrite; do
+            git config --global --add url.git@github.com:.insteadOf "$rewrite"
+        done <<< "$ssh_rewrites"
+        success "Git SSH URL rewrites restored"
     fi
 
     # Handle keg-only formulae that need PATH
