@@ -7,7 +7,7 @@ A single script that takes a fresh Mac from factory state to a fully configured 
 The bootstrap script automates the following in order:
 
 1. Installs Xcode Command Line Tools (provides `git`, `clang`, etc.)
-2. Installs Homebrew (with bulletproof PATH setup for the current session)
+2. Installs Homebrew (with bulletproof PATH setup + temporary `.zprofile` bridge for persistence between runs)
 3. Installs bootstrap dependencies (`gh` and `chezmoi` via Homebrew)
 4. Authenticates with GitHub (browser-based OAuth — no SSH key needed)
 5. Clones dotfiles repo via chezmoi (authentication already handled)
@@ -18,15 +18,16 @@ The bootstrap script automates the following in order:
 10. Disables redundant built-in apps (rebuilds Dock with preferred apps, prints Screen Time guide)
 11. Installs Oh-My-Zsh (framework for zsh plugins and completions)
 12. Sets Homebrew zsh as the default shell (with ZDOTDIR → `~/.config/zsh/`)
-13. Configures macOS system defaults (Finder, Dock, keyboard, trackpad, screenshots, security)
-14. Sets 24-hour time system-wide (menu bar, lock screen)
-15. Configures power management (battery: 3m display/10m sleep; charger: 15m display/never sleep)
-16. Creates PARA directory structure (`0-inbox` through `4-archive` + Developer workspace)
-17. Installs LazyVim starter and overlays Neovim customizations from dotfiles
-18. Installs language runtimes via mise (`~/.config/mise/config.toml`: Node, Python, Go, Rust)
-19. Installs Rust components (rustfmt, clippy, rust-analyzer)
-20. Generates static zsh completion files (gh, chezmoi, just, uv, rustup, cargo, starship, atuin, docker)
-21. Verifies all shell tools are present
+13. Cleans up legacy zsh files (`~/.zprofile`, `~/.zshrc`, `~/.zcompdump*`, etc. — superseded by ZDOTDIR config)
+14. Configures macOS system defaults (Finder, Dock, keyboard, trackpad, screenshots, security)
+15. Sets 24-hour time system-wide (menu bar, lock screen)
+16. Configures power management (battery: 3m display/10m sleep; charger: 15m display/never sleep)
+17. Creates PARA directory structure (`0-inbox` through `4-archive` + Developer workspace)
+18. Installs LazyVim starter and overlays Neovim customizations from dotfiles
+19. Installs language runtimes via mise (`~/.config/mise/config.toml`: Node, Python, Go, Rust)
+20. Installs Rust components (rustfmt, clippy, rust-analyzer)
+21. Generates static zsh completion files (gh, chezmoi, just, uv, rustup, cargo, starship, atuin, docker)
+22. Verifies all shell tools are present
 
 ## Prerequisites
 
@@ -78,13 +79,14 @@ bash bootstrap.sh          # run it
 **What to expect:**
 
 - **Xcode CLI tools** — a system dialog will appear. Click "Install" and wait (2–5 minutes).
-- **Homebrew** — prompts for your password once (needs `sudo` to create `/opt/homebrew`).
+- **Homebrew** — prompts for your password once (needs `sudo` to create `/opt/homebrew`). A temporary `~/.zprofile` is written so `brew` persists on PATH if the script is interrupted and re-run from a new terminal. This file is cleaned up later in the process.
 - **GitHub authentication** — the script installs `gh`, then opens your browser for OAuth login. You'll see a one-time code in the terminal — enter it in the browser to authorize. This takes about 30 seconds. Once authenticated, the script configures git to use `gh` as a credential helper, so all subsequent git operations (including chezmoi's dotfiles clone) work automatically.
 - **Chezmoi prompts** — you'll be asked for your name, email, GitHub username, and preferred editor. These values are stored in `~/.config/chezmoi/chezmoi.toml` and used to template your dotfiles.
 - **Brewfile** — first run takes 10–30 minutes depending on your connection. Cask installs may trigger macOS security prompts.
 - **Template re-evaluation** — after the Brewfile installs all tools, chezmoi re-renders templates so your `.gitconfig` picks up delta, gh, difft, and your `.chezmoi.toml` detects cursor/nvim.
 - **Oh-My-Zsh** — installed with `KEEP_ZSHRC=yes` so it doesn't overwrite your chezmoi-managed `.zshrc`.
 - **Default shell change** — prompts for your password once (`chsh` requires it).
+- **Legacy zsh cleanup** — removes `~/.zprofile` (Homebrew bridge), `~/.zshrc`, `~/.zcompdump*`, and other zsh files from `$HOME` that are superseded by your ZDOTDIR config in `~/.config/zsh/`.
 - **Bloatware removal** — deletes GarageBand, iMovie, Keynote, Numbers, Pages and their sound libraries. These may return after major macOS updates; re-run to clean up.
 - **Dock rebuild** — the Dock is cleared and rebuilt with your preferred apps only.
 - **Neovim plugins** — headless install runs silently. If it has issues, plugins finish installing on first launch.
@@ -291,7 +293,7 @@ Then re-run the bootstrap script.
 Open App Store and sign in with your Apple ID, then press Enter in the terminal to continue.
 
 **`brew` not found after installation**
-The script handles this with `hash -r` and PATH fallbacks. If you're running commands manually after a failed bootstrap, source Homebrew's environment:
+The script writes a temporary `~/.zprofile` with `brew shellenv` so Homebrew stays on PATH even if the script fails partway through and you open a new terminal. This file is cleaned up automatically once dotfiles are deployed. If you're in a session where `brew` still isn't found, source it manually:
 ```bash
 eval "$(/opt/homebrew/bin/brew shellenv)"    # Apple Silicon
 eval "$(/usr/local/bin/brew shellenv)"       # Intel

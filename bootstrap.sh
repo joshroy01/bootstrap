@@ -12,7 +12,7 @@
 # What it does (in order):
 #   1.  Preflight checks (macOS, architecture)
 #   2.  Installs Xcode Command Line Tools
-#   3.  Installs Homebrew (with bulletproof PATH setup)
+#   3.  Installs Homebrew (with bulletproof PATH setup + .zprofile bridge)
 #   4.  Installs bootstrap dependencies (gh, chezmoi)
 #   5.  Authenticates with GitHub (browser-based OAuth via gh)
 #   6.  Clones dotfiles repo via chezmoi
@@ -22,6 +22,7 @@
 #   10. Disables built-in Apple apps (removes from Dock)
 #   11. Installs Oh-My-Zsh
 #   12. Sets default shell to Homebrew zsh
+#   12b. Cleans up legacy zsh files (~/.zprofile, ~/.zshrc, etc.)
 #   13. Configures macOS defaults (incl. 24hr time, power management)
 #   14. Creates PARA directory structure
 #   15. Sets up Neovim with LazyVim
@@ -123,8 +124,13 @@ install_xcode_cli() {
 install_homebrew() {
     section "Homebrew"
 
-    if command_exists brew; then
+    # Check the known install path directly — not PATH, which isn't configured
+    # yet in a fresh bash session. This prevents unnecessary reinstalls when
+    # re-running the script after a partial failure.
+    if [[ -x "$HOMEBREW_PREFIX/bin/brew" ]]; then
         success "Homebrew already installed"
+        eval "$($HOMEBREW_PREFIX/bin/brew shellenv)"
+        hash -r
         info "Updating Homebrew..."
         brew update
     else
@@ -152,6 +158,21 @@ install_homebrew() {
 
     success "Homebrew on PATH: $(command -v brew)"
     brew --version
+
+    # Persist brew shellenv for new terminal sessions opened between runs.
+    # After a partial failure, the user may open a new terminal to debug —
+    # without this, `brew` isn't on PATH because dotfiles (exports/main.zsh)
+    # haven't been deployed yet. Once dotfiles are applied, exports/main.zsh
+    # handles Homebrew PATH permanently and this bridge is cleaned up by
+    # cleanup_legacy_zsh_files().
+    local zprofile="$HOME/.zprofile"
+    local shellenv_line="eval \"\$($HOMEBREW_PREFIX/bin/brew shellenv)\""
+
+    if [[ ! -f "$zprofile" ]] || ! grep -qF "brew shellenv" "$zprofile"; then
+        info "Adding brew shellenv to ~/.zprofile (temporary bridge)..."
+        echo "$shellenv_line" >> "$zprofile"
+        success "Homebrew PATH persisted in ~/.zprofile"
+    fi
 }
 
 # ------------------------------------------------------------------------------
@@ -482,6 +503,61 @@ configure_shell() {
         success "Default shell changed (restart terminal to take effect)"
     else
         success "Default shell is already $brew_zsh"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# 11b. Clean Up Legacy Zsh Config Files
+# ------------------------------------------------------------------------------
+
+cleanup_legacy_zsh_files() {
+    section "Cleaning Legacy Zsh Config Files"
+
+    # ~/.zshenv is the ONE file we keep in $HOME — it sets ZDOTDIR to redirect
+    # all other zsh config reads to ~/.config/zsh/. Everything else in $HOME is
+    # either orphaned from a previous setup, created by Oh-My-Zsh install, or
+    # a temporary bridge file (like the .zprofile Homebrew PATH shim).
+    #
+    # Zsh startup file load order (for reference):
+    #   1. ~/.zshenv         (always, before ZDOTDIR takes effect) — WE KEEP THIS
+    #   2. $ZDOTDIR/.zprofile (login shells)     — handled by exports/main.zsh
+    #   3. $ZDOTDIR/.zshrc    (interactive shells) — managed by chezmoi
+    #   4. $ZDOTDIR/.zlogin   (login shells)     — not used
+    #   5. $ZDOTDIR/.zlogout  (on logout)        — not used
+    #
+    # Since ZDOTDIR=~/.config/zsh, any of these files in $HOME are dead weight
+    # that zsh won't read but that clutter the home directory and could mask
+    # bugs during testing.
+
+    local legacy_files=(
+        "$HOME/.zshrc"
+        "$HOME/.zprofile"
+        "$HOME/.zlogin"
+        "$HOME/.zlogout"
+        "$HOME/.zshrc.pre-oh-my-zsh"
+    )
+
+    local cleaned=0
+    for f in "${legacy_files[@]}"; do
+        if [[ -f "$f" ]]; then
+            rm -f "$f"
+            success "Removed $(basename "$f") (handled by ZDOTDIR config)"
+            ((cleaned++))
+        fi
+    done
+
+    # Stale completion dumps in $HOME (ours live in ~/.config/zsh/)
+    for f in "$HOME"/.zcompdump*; do
+        [[ -e "$f" ]] || continue
+        rm -f "$f"
+        success "Removed $(basename "$f") (stale completion cache)"
+        ((cleaned++))
+    done
+
+    if [[ $cleaned -eq 0 ]]; then
+        success "No legacy zsh files found — home directory clean"
+    else
+        success "Cleaned $cleaned legacy file(s) from home directory"
     fi
 }
 
@@ -920,6 +996,7 @@ print_summary() {
 ║  ✓ Rebuilt Dock with preferred apps, disabled redundant built-in apps        ║
 ║  ✓ Oh-My-Zsh framework                                                       ║
 ║  ✓ Default shell → Homebrew zsh (ZDOTDIR → ~/.config/zsh)                    ║
+║  ✓ Cleaned legacy zsh files from $HOME (.zprofile, .zshrc, .zcompdump, etc.) ║
 ║  ✓ macOS defaults (Finder, Dock, keyboard, trackpad, security)               ║
 ║  ✓ 24-hour time (menu bar, lock screen, system-wide)                         ║
 ║  ✓ Power management (battery: 3m display/10m sleep, charger: 15m/never)      ║
@@ -977,6 +1054,7 @@ main() {
     disable_builtin_apps
     install_oh_my_zsh
     configure_shell
+    cleanup_legacy_zsh_files
     configure_macos_defaults
     create_directory_structure
     setup_neovim
