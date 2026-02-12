@@ -300,6 +300,50 @@ apply_dotfiles() {
 # 7. Brewfile Installation
 # ------------------------------------------------------------------------------
 
+# ------------------------------------------------------------------------------
+# 7b. Ensure Terminal App Management Permission
+# ------------------------------------------------------------------------------
+
+ensure_app_management_permission() {
+    section "App Management Permission"
+
+    # macOS Sequoia+ requires explicit App Management permission for any app
+    # that installs .app bundles into /Applications/ (which brew cask does).
+    # This can't be granted programmatically — TCC requires user interaction.
+    # We trigger the prompt early with a no-op cask check so the user grants
+    # it before the 30-minute Brewfile install starts.
+
+    info "Homebrew cask installs require App Management permission."
+    info "If prompted, click 'Allow' in the system dialog."
+    echo ""
+
+    # Trigger the permission prompt by attempting a cask operation.
+    # 'brew list --cask' on an empty install will trigger it if the terminal
+    # doesn't already have the permission.
+    brew list --cask &>/dev/null 2>&1 || true
+
+    # Verify the terminal can write to /Applications/
+    local test_dir="/Applications/.bootstrap-permission-test"
+    if mkdir "$test_dir" 2>/dev/null; then
+        rmdir "$test_dir"
+        success "Terminal has App Management permission"
+    else
+        warn "Terminal may not have App Management permission."
+        warn "If cask installs fail, grant permission at:"
+        info "  System Settings → Privacy & Security → App Management"
+        info "  Toggle ON for: $(basename "$TERM_PROGRAM" 2>/dev/null || echo "Terminal")"
+        echo ""
+        warn "Press Enter to continue, or Ctrl+C to grant permission first."
+        read -r < /dev/tty
+    fi
+
+    # Remind about WezTerm for future sessions
+    echo ""
+    info "After bootstrap completes, also grant App Management to WezTerm/Ghostty"
+    info "if you plan to run 'brew install --cask' from those terminals."
+    info "  System Settings → Privacy & Security → App Management"
+}
+
 install_brewfile() {
     section "Installing Packages from Brewfile"
 
@@ -959,6 +1003,12 @@ post_install() {
     info "  System Settings → Privacy & Security → Full Disk Access"
     info "  This allows tools like du, rsync, and backup scripts to access all directories"
 
+    echo ""
+    warn "Grant App Management permission to your terminal apps (WezTerm, Ghostty)"
+    info "  WezTerm.app:App Management:System Settings → Privacy & Security → App Management"
+    info "  Ghostty.app:App Management:System Settings → Privacy & Security → App Management"
+    info "  This allows the terminal apps to manage other apps"
+
     # Atuin setup
     echo ""
     if command_exists atuin; then
@@ -1069,6 +1119,7 @@ main() {
     authenticate_github
     install_chezmoi
     apply_dotfiles
+    ensure_app_management_permission
     install_brewfile
     remove_bloatware
     disable_builtin_apps
