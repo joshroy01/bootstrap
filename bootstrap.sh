@@ -16,15 +16,17 @@
 #   4.  Installs chezmoi and clones dotfiles
 #   5.  Applies dotfiles (Brewfile, zshrc, mise config, starship, etc.)
 #   6.  Installs packages from Brewfile
-#   7.  Installs Oh-My-Zsh
-#   8.  Sets default shell to Homebrew zsh
-#   9.  Configures macOS defaults
-#   10. Creates PARA directory structure
-#   11. Sets up Neovim with LazyVim
-#   12. Installs language runtimes (mise) + Rust components
-#   13. Sets up zsh completion system
-#   14. Verifies shell tool installation
-#   15. Post-install hooks (fonts, permissions, atuin)
+#   7.  Removes pre-installed bloatware (iWork/iLife apps)
+#   8.  Disables built-in Apple apps (removes from Dock)
+#   9.  Installs Oh-My-Zsh
+#   10. Sets default shell to Homebrew zsh
+#   11. Configures macOS defaults (incl. 24hr time, power management)
+#   12. Creates PARA directory structure
+#   13. Sets up Neovim with LazyVim
+#   14. Installs language runtimes (mise) + Rust components
+#   15. Sets up zsh completion system
+#   16. Verifies shell tool installation
+#   17. Post-install hooks (fonts, permissions, atuin, Screen Time reminder)
 #
 # The script is idempotent — safe to re-run at any time.
 # ==============================================================================
@@ -158,7 +160,10 @@ install_chezmoi() {
         chezmoi update
     else
         info "Initializing chezmoi from $DOTFILES_REPO..."
-        if ! chezmoi init "$DOTFILES_REPO"; then
+        # < /dev/tty: chezmoi's promptStringOnce reads stdin for interactive
+        # input. When running via `curl | bash`, stdin is the pipe, so we
+        # redirect from /dev/tty to ensure prompts work.
+        if ! chezmoi init "$DOTFILES_REPO" < /dev/tty; then
             echo ""
             warn "Failed to clone dotfiles repo."
             warn "If the repo is private, authenticate first:"
@@ -212,7 +217,7 @@ install_brewfile() {
             warn "Brewfile contains Mac App Store apps."
             warn "Please sign in to the App Store before continuing."
             warn "Press Enter after signing in, or Ctrl+C to abort."
-            read -r
+            read -r < /dev/tty
         fi
     fi
 
@@ -227,10 +232,127 @@ install_brewfile() {
     fi
 
     success "All packages installed"
+
+    # Re-evaluate chezmoi templates now that tools are installed.
+    # .chezmoi.toml.tmpl uses lookPath for cursor/nvim/vim — needs re-init.
+    # .gitconfig.tmpl uses lookPath for delta/gh/difft — needs re-apply.
+    info "Re-evaluating chezmoi templates with full toolchain..."
+    chezmoi init --force
+    chezmoi apply --verbose
+    success "Dotfiles re-applied (templates now detect delta, gh, cursor, etc.)"
 }
 
 # ------------------------------------------------------------------------------
-# 6. Oh-My-Zsh
+# 6. Remove Pre-installed Bloatware
+# ------------------------------------------------------------------------------
+
+remove_bloatware() {
+    section "Removing Pre-installed Apps"
+
+    # These are App Store apps that come pre-installed — safe to delete.
+    # macOS updates may occasionally re-install them; re-run to clean up.
+    local apps=(
+        "GarageBand"
+        "iMovie"
+        "Keynote"
+        "Numbers"
+        "Pages"
+    )
+
+    for app in "${apps[@]}"; do
+        if [[ -d "/Applications/${app}.app" ]]; then
+            sudo rm -rf "/Applications/${app}.app"
+            success "Removed ${app}"
+        else
+            info "${app} already removed"
+        fi
+    done
+
+    # Clean up GarageBand sound libraries (~2-3 GB)
+    if [[ -d "/Library/Application Support/GarageBand" ]]; then
+        sudo rm -rf "/Library/Application Support/GarageBand"
+        sudo rm -rf "/Library/Audio/Apple Loops/Apple"
+        success "Removed GarageBand sound libraries"
+    fi
+
+    success "Bloatware cleanup complete"
+}
+
+# ------------------------------------------------------------------------------
+# 7. Disable Built-in Apple Apps
+# ------------------------------------------------------------------------------
+
+disable_builtin_apps() {
+    section "Disabling Built-in Apple Apps"
+
+    # Method 1: Remove from Dock
+    # SIP-protected apps can't be deleted, but we can remove them from the Dock.
+    # We rebuild the Dock's persistent-apps array with only the apps we want.
+
+    # Clear the Dock entirely and rebuild with only apps we want.
+    # This is cleaner than selectively removing entries.
+    info "Rebuilding Dock with preferred apps only..."
+
+    defaults write com.apple.dock persistent-apps -array
+
+    # Add back the apps we actually want in the Dock
+    local dock_apps=(
+        "/Applications/Arc.app"
+        "/System/Applications/System Settings.app"
+        "/Applications/WezTerm.app"
+        "/Applications/Ghostty.app"
+        "/Applications/Cursor.app"
+        "/Applications/Visual Studio Code.app"
+        "/Applications/Obsidian.app"
+        "/Applications/Notion.app"
+        "/Applications/Notion Calendar.app"
+        "/Applications/Readdle Spark.app"
+        "/Applications/Slack.app"
+        "/Applications/Discord.app"
+        "/Applications/Spotify.app"
+        "/Applications/Bitwarden.app"
+    )
+
+    for app_path in "${dock_apps[@]}"; do
+        if [[ -d "$app_path" ]]; then
+            defaults write com.apple.dock persistent-apps -array-add \
+                "<dict><key>tile-data</key><dict><key>file-data</key><dict><key>_CFURLString</key><string>file://${app_path}/</string><key>_CFURLStringType</key><integer>15</integer></dict></dict></dict>"
+        fi
+    done
+
+    killall Dock 2>/dev/null || true
+
+    success "Dock rebuilt with preferred apps"
+
+    # Method 2: Screen Time app limits (must be done manually)
+    # Screen Time settings are SIP-protected and can't be set via defaults/CLI.
+    echo ""
+    warn "MANUAL STEP: Disable built-in apps via Screen Time"
+    info "  System Settings → Screen Time → App & Website Activity (turn on)"
+    info "  Then: App Limits → Add Limit → select these apps → set 1 min/day:"
+    echo ""
+    local disable_apps=(
+        "Calendar"
+        "Mail"
+        "Music"
+        "TV"
+        "News"
+        "Stocks"
+        "Freeform"
+        "Photo Booth"
+        "Chess"
+        "Automator"
+    )
+    for app in "${disable_apps[@]}"; do
+        echo "    • $app"
+    done
+    echo ""
+    info "  Set a Screen Time passcode to prevent accidental use."
+    info "  This functionally disables apps without compromising SIP."
+}
+
+# ------------------------------------------------------------------------------
+# 8. Oh-My-Zsh
 # ------------------------------------------------------------------------------
 
 install_oh_my_zsh() {
@@ -248,7 +370,7 @@ install_oh_my_zsh() {
 }
 
 # ------------------------------------------------------------------------------
-# 7. Shell Configuration
+# 9. Shell Configuration
 # ------------------------------------------------------------------------------
 
 configure_shell() {
@@ -288,7 +410,7 @@ configure_shell() {
 }
 
 # ------------------------------------------------------------------------------
-# 8. macOS Defaults
+# 10. macOS Defaults
 # ------------------------------------------------------------------------------
 
 configure_macos_defaults() {
@@ -325,10 +447,35 @@ configure_macos_defaults() {
     defaults write com.apple.AppleMultitouchTrackpad TrackpadThreeFingerDrag -bool true
 
     # ── Screenshots ─────────────────────────────────────────────────────────
-    mkdir -p "$HOME/Screenshots"
+    mkdir -p "$HOME/screenshots"
     defaults write com.apple.screencapture location -string "$HOME/screenshots"
     defaults write com.apple.screencapture type -string "png"
     defaults write com.apple.screencapture disable-shadow -bool true
+
+    # ── 24-Hour Time ────────────────────────────────────────────────────────
+    # Set system-wide 24-hour clock (menu bar, lock screen, etc.)
+    defaults write NSGlobalDomain AppleICUForce24HourTime -bool true
+    defaults write com.apple.menuextra.clock Show24Hour -bool true
+    # Date format in menu bar: "EEE d MMM HH:mm:ss" = "Thu 12 Feb 14:30:00"
+    defaults write com.apple.menuextra.clock DateFormat -string "EEE d MMM HH:mm:ss"
+
+    # ── Power Management ────────────────────────────────────────────────────
+    # Battery: aggressive display sleep to conserve battery
+    #   Display off after 3 min, system sleep after 10 min
+    sudo pmset -b displaysleep 3
+    sudo pmset -b sleep 10
+    sudo pmset -b lessbright 1       # Slightly dim on battery
+
+    # Charger: relaxed — keep alive for long dev sessions
+    #   Display off after 15 min, system never sleeps (0 = disabled)
+    sudo pmset -c displaysleep 15
+    sudo pmset -c sleep 0            # Never sleep on charger (useful for builds, downloads)
+
+    # Shared settings (both battery and charger)
+    sudo pmset -a lidwake 1          # Wake when lid opens
+    sudo pmset -a powernap 0         # Disable Power Nap (prevents background wake)
+    sudo pmset -a tcpkeepalive 1     # Keep network connections alive during sleep
+    sudo pmset -a hibernatemode 3    # Safe Sleep: RAM + disk image (laptop default)
 
     # ── Safari ──────────────────────────────────────────────────────────────
     defaults write com.apple.Safari ShowFullURLInSmartSearchField -bool true
@@ -371,16 +518,16 @@ configure_macos_defaults() {
     defaults write com.apple.dock wvous-br-modifier -int 0
 
     # ── Restart affected apps ───────────────────────────────────────────────
-    for app in "Finder" "Dock" "SystemUIServer"; do
+    for app in "Finder" "Dock" "SystemUIServer" "ControlCenter"; do
         killall "$app" &> /dev/null || true
     done
 
-    success "macOS defaults configured"
+    success "macOS defaults configured (incl. 24hr time, power management)"
     warn "Some changes may require a logout/restart to take effect"
 }
 
 # ------------------------------------------------------------------------------
-# 9. PARA Directory Structure
+# 11. PARA Directory Structure
 # ------------------------------------------------------------------------------
 
 create_directory_structure() {
@@ -416,7 +563,7 @@ create_directory_structure() {
 }
 
 # ------------------------------------------------------------------------------
-# 10. Neovim Configuration (LazyVim)
+# 12. Neovim Configuration (LazyVim)
 # ------------------------------------------------------------------------------
 
 setup_neovim() {
@@ -459,7 +606,7 @@ setup_neovim() {
 }
 
 # ------------------------------------------------------------------------------
-# 11. Language Runtimes (mise)
+# 13. Language Runtimes (mise)
 # ------------------------------------------------------------------------------
 
 setup_mise() {
@@ -497,7 +644,7 @@ setup_mise() {
 }
 
 # ------------------------------------------------------------------------------
-# 12. Zsh Completion System
+# 14. Zsh Completion System
 # ------------------------------------------------------------------------------
 
 setup_completions() {
@@ -551,7 +698,7 @@ setup_completions() {
 }
 
 # ------------------------------------------------------------------------------
-# 13. Shell Tool Verification
+# 15. Shell Tool Verification
 # ------------------------------------------------------------------------------
 
 verify_shell_tools() {
@@ -595,7 +742,7 @@ verify_shell_tools() {
 }
 
 # ------------------------------------------------------------------------------
-# 14. Post-Install Hooks
+# 16. Post-Install Hooks
 # ------------------------------------------------------------------------------
 
 post_install() {
@@ -665,6 +812,14 @@ post_install() {
         info "Bitwarden — sign in to desktop app and browser extension"
         info "  If using SSH agent: Settings → SSH Agent → Enable"
     fi
+
+    # Screen Time app disabling reminder
+    echo ""
+    warn "REMINDER: Disable redundant built-in apps via Screen Time"
+    info "  The bootstrap script already removed bloatware and rebuilt the Dock."
+    info "  For SIP-protected apps (Calendar, Mail, Music, TV, News, Stocks, etc.):"
+    info "  System Settings → Screen Time → App Limits → Add Limit → 1 min/day"
+    info "  Set a Screen Time passcode to enforce the limit."
 }
 
 # ------------------------------------------------------------------------------
@@ -682,15 +837,19 @@ print_summary() {
 ║  WHAT WAS SET UP:                                                            ║
 ║                                                                              ║
 ║  ✓ Xcode CLI Tools, Homebrew, chezmoi dotfiles                               ║
-║  ✓ All Brewfile packages (CLI tools, casks, fonts, App Store apps)            ║
-║  ✓ Oh-My-Zsh framework                                                      ║
+║  ✓ All Brewfile packages (CLI tools, casks, fonts, App Store apps)           ║
+║  ✓ Removed bloatware (GarageBand, iMovie, Keynote, Numbers, Pages)           ║
+║  ✓ Rebuilt Dock with preferred apps, disabled redundant built-in apps        ║
+║  ✓ Oh-My-Zsh framework                                                       ║
 ║  ✓ Default shell → Homebrew zsh (ZDOTDIR → ~/.config/zsh)                    ║
 ║  ✓ macOS defaults (Finder, Dock, keyboard, trackpad, security)               ║
-║  ✓ PARA directory structure (0-inbox through 4-archive + Developer)           ║
+║  ✓ 24-hour time (menu bar, lock screen, system-wide)                         ║
+║  ✓ Power management (battery: 3m display/10m sleep, charger: 15m/never)      ║
+║  ✓ PARA directory structure (0-inbox through 4-archive + Developer)          ║
 ║  ✓ Neovim with LazyVim                                                       ║
 ║  ✓ Language runtimes via mise (Node, Python, Go, Rust)                       ║
 ║  ✓ Rust components (rustfmt, clippy, rust-analyzer)                          ║
-║  ✓ Zsh static completions (gh, chezmoi, just, uv, rustup, etc.)             ║
+║  ✓ Zsh static completions (gh, chezmoi, just, uv, rustup, etc.)              ║
 ║  ✓ Shell tools verified (starship, atuin, zoxide, direnv, fzf, mise)         ║
 ║                                                                              ║
 ║  NEXT STEPS:                                                                 ║
@@ -698,10 +857,11 @@ print_summary() {
 ║  1. Restart your terminal (or: exec zsh)                                     ║
 ║  2. Grant app permissions (see warnings above)                               ║
 ║  3. Grant Full Disk Access to your terminal app                              ║
-║  4. Set up atuin (optional): atuin register OR atuin login                   ║
-║  5. Set up Raycast as Spotlight replacement (see above)                      ║
-║  6. Sign in to Bitwarden                                                     ║
-║  7. First-launch Neovim: nvim (plugins finish setup)                         ║
+║  4. Disable built-in apps via Screen Time (see warnings above)               ║
+║  5. Set up atuin (optional): atuin register OR atuin login                   ║
+║  6. Set up Raycast as Spotlight replacement (see above)                      ║
+║  7. Sign in to Bitwarden                                                     ║
+║  8. First-launch Neovim: nvim (plugins finish setup)                         ║
 ║                                                                              ║
 ║  USEFUL COMMANDS:                                                            ║
 ║     chezmoi diff              → See pending dotfile changes                  ║
@@ -733,6 +893,8 @@ main() {
     install_chezmoi
     apply_dotfiles
     install_brewfile
+    remove_bloatware
+    disable_builtin_apps
     install_oh_my_zsh
     configure_shell
     configure_macos_defaults
@@ -745,6 +907,6 @@ main() {
     print_summary
 }
 
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]] || [[ -z "${BASH_SOURCE[0]:-}" ]]; then
     main "$@"
 fi

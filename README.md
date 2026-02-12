@@ -11,15 +11,19 @@ The bootstrap script automates the following in order:
 3. Installs chezmoi and clones your [dotfiles repo](https://github.com/joshroy01/dotfiles)
 4. Applies dotfiles (places Brewfile, zshrc, mise config, starship config, etc.)
 5. Installs all packages from Brewfile (CLI tools, casks, fonts, App Store apps)
-6. Installs Oh-My-Zsh (framework for zsh plugins and completions)
-7. Sets Homebrew zsh as the default shell (with ZDOTDIR → `~/.config/zsh/`)
-8. Configures macOS system defaults (Finder, Dock, keyboard, trackpad, screenshots, security)
-9. Creates PARA directory structure (`0-inbox` through `4-archive` + Developer workspace)
-10. Installs LazyVim starter and overlays Neovim customizations from dotfiles
-11. Installs language runtimes via mise (`~/.config/mise/config.toml`: Node, Python, Go, Rust)
-12. Installs Rust components (rustfmt, clippy, rust-analyzer)
-13. Generates static zsh completion files (gh, chezmoi, just, uv, rustup, cargo, starship, atuin, docker)
-14. Verifies all shell tools are present
+6. Removes pre-installed bloatware (GarageBand, iMovie, Keynote, Numbers, Pages + sound libraries)
+7. Disables redundant built-in apps (rebuilds Dock with preferred apps, prints Screen Time guide)
+8. Installs Oh-My-Zsh (framework for zsh plugins and completions)
+9. Sets Homebrew zsh as the default shell (with ZDOTDIR → `~/.config/zsh/`)
+10. Configures macOS system defaults (Finder, Dock, keyboard, trackpad, screenshots, security)
+11. Sets 24-hour time system-wide (menu bar, lock screen)
+12. Configures power management (battery: 3m display/10m sleep; charger: 15m display/never sleep)
+13. Creates PARA directory structure (`0-inbox` through `4-archive` + Developer workspace)
+14. Installs LazyVim starter and overlays Neovim customizations from dotfiles
+15. Installs language runtimes via mise (`~/.config/mise/config.toml`: Node, Python, Go, Rust)
+16. Installs Rust components (rustfmt, clippy, rust-analyzer)
+17. Generates static zsh completion files (gh, chezmoi, just, uv, rustup, cargo, starship, atuin, docker)
+18. Verifies all shell tools are present
 
 ## Prerequisites
 
@@ -54,16 +58,29 @@ The script will pause and remind you if it detects `mas` entries and you aren't 
 Open **Terminal** (Spotlight → "Terminal") and run:
 
 ```bash
+# Option A: Download and run just the bootstrap script
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/joshroy01/bootstrap/main/bootstrap.sh)"
+```
+
+```bash
+# Option B: Download the entire bootstrap repo (if it contains other files)
+mkdir ~/bootstrap
+curl -fsSL https://github.com/joshroy01/bootstrap/archive/main.tar.gz | tar xz -C ~/bootstrap
+cd ~/bootstrap
+bash bootstrap.sh
 ```
 
 Or if you prefer to inspect before running:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/joshroy01/bootstrap/main/bootstrap.sh -o /tmp/bootstrap.sh
-less /tmp/bootstrap.sh          # review it
-bash /tmp/bootstrap.sh          # run it
+mkdir ~/bootstrap
+curl -fsSL https://github.com/joshroy01/bootstrap/archive/main.tar.gz | tar xz -C ~/bootstrap
+cd ~/bootstrap
+less bootstrap.sh          # review it
+bash bootstrap.sh          # run it
 ```
+
+> **Note:** Option B uses GitHub's tarball endpoint to download the entire repo as an archive. This doesn't require `git` (which isn't available until Xcode CLI tools are installed).
 
 **What to expect:**
 
@@ -73,6 +90,9 @@ bash /tmp/bootstrap.sh          # run it
 - **Oh-My-Zsh** — installed with `KEEP_ZSHRC=yes` so it doesn't overwrite your chezmoi-managed `.zshrc`.
 - **Default shell change** — prompts for your password once (`chsh` requires it).
 - **Brewfile** — first run takes 10–30 minutes depending on your connection. Cask installs may trigger macOS security prompts.
+- **Bloatware removal** — deletes GarageBand, iMovie, Keynote, Numbers, Pages and their sound libraries. These may return after major macOS updates; re-run to clean up.
+- **Dock rebuild** — the Dock is cleared and rebuilt with your preferred apps. If an app isn't installed yet, it's skipped.
+- **Screen Time** — the script prints instructions for manually disabling built-in apps via Screen Time (can't be automated via CLI due to SIP).
 - **mise runtimes** — installs Node, Python, Go, and Rust as defined in `~/.config/mise/config.toml` (applied by chezmoi).
 - **Zsh completions** — generated as static files in `~/.config/zsh/completions/` for fast shell startup.
 - **Neovim plugins** — headless install runs silently. If it has issues, plugins finish installing on first launch.
@@ -146,6 +166,19 @@ Atuin owns `Ctrl-R` (history search). fzf handles `Ctrl-T` (file search) and `Al
 **Pearcleaner:**
 - On first launch, grant Full Disk Access and Accessibility when prompted
 - Optionally enable the Sentinel Monitor (background watcher for app deletions) in Pearcleaner settings
+
+**Screen Time — disable redundant built-in apps:**
+
+The bootstrap script already deleted removable bloatware and rebuilt the Dock, but SIP-protected system apps (Calendar, Mail, Music, TV, News, Stocks, etc.) can't be deleted. Use Screen Time to functionally disable them:
+
+1. Open **System Settings → Screen Time**
+2. Turn on **App & Website Activity** if not already on
+3. Go to **App Limits → Add Limit**
+4. Select each app you want to disable: Calendar, Mail, Music, TV, News, Stocks, Freeform, Photo Booth, Chess, Automator
+5. Set the time limit to **1 minute per day**
+6. Set a **Screen Time passcode** (prevents bypassing the limit)
+
+After the 1-minute limit is reached, the app grays out and won't launch without the passcode. This effectively disables the app while preserving SIP and your security posture.
 
 ### Step 7: Verify the setup
 
