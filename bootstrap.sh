@@ -29,7 +29,7 @@
 #   16. Installs language runtimes (mise) + Rust components
 #   17. Sets up zsh completion system
 #   18. Verifies shell tool installation
-#   19. Post-install hooks (fonts, permissions, atuin, Screen Time reminder)
+#   19. Post-install hooks (fonts, permissions, atuin, commit signing, Screen Time reminder)
 #
 # The script is idempotent — safe to re-run at any time.
 # ==============================================================================
@@ -51,8 +51,6 @@ YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 BOLD='\033[1m'
 NC='\033[0m'
-
-SSH_REWRITES=""
 
 # ------------------------------------------------------------------------------
 # Helper Functions
@@ -240,9 +238,8 @@ authenticate_github() {
         info "This will open a browser window for OAuth login."
         echo ""
 
-        # --git-protocol https: avoids SSH key setup on a fresh machine.
-        #   The dotfiles .gitconfig has SSH URL rewrites, but those aren't
-        #   applied yet — we need HTTPS to work NOW for the initial clone.
+        # --git-protocol https: HTTPS with gh credential helper is the
+        #   primary transport. No SSH keys needed for clone/push/pull.
         # --web: skips interactive protocol/host menus, goes straight to browser.
         # < /dev/tty: required when script is piped via curl | bash.
         gh auth login \
@@ -306,21 +303,6 @@ apply_dotfiles() {
             warn "  ✗ $f not found — check chezmoi source"
         fi
     done
-}
-
-disable_git_ssh_rewrites() {
-    section "Disabling Git SSH URL Rewrites"
-
-    # Temporarily disable git SSH URL rewrites for Homebrew taps.
-    # The .gitconfig may have multiple insteadOf values under the same
-    # [url] section (e.g., https://github.com/ and gh:), so we must use
-    # --get-all / --unset-all to handle them correctly.
-    SSH_REWRITES=$(git config --global --get-all url.git@github.com:.insteadOf 2>/dev/null || true)
-
-    if [[ -n "$SSH_REWRITES" ]]; then
-        info "Temporarily disabling git SSH URL rewrite for Homebrew taps..."
-        git config --global --unset-all url.git@github.com:.insteadOf
-    fi
 }
 
 # ------------------------------------------------------------------------------
@@ -447,9 +429,6 @@ install_brewfile() {
     chezmoi init --force       # Re-evaluate .chezmoi.toml.tmpl (editor detection)
     chezmoi apply --verbose --no-pager    # Re-render .gitconfig.tmpl (delta, gh, difft blocks)
     success "Dotfiles re-applied (templates now detect delta, gh, cursor, etc.)"
-
-    info "Re-disabling git SSH URL rewrite for Homebrew taps..."
-    git config --global --unset-all url.git@github.com:.insteadOf
 }
 
 # ------------------------------------------------------------------------------
@@ -1032,21 +1011,6 @@ verify_shell_tools() {
 # 19. Post-Install Hooks
 # ------------------------------------------------------------------------------
 
-restore_git_ssh_rewrites() {
-    section "Restoring Git SSH URL Rewrites"
-
-    # Restore all SSH rewrites now that clones are complete
-    if [[ -n "$SSH_REWRITES" ]]; then
-        info "Restoring Git SSH URL rewrites..."
-        while IFS= read -r rewrite; do
-            git config --global --add url.git@github.com:.insteadOf "$rewrite"
-        done <<< "$SSH_REWRITES"
-        success "Git SSH URL rewrites restored"
-    else
-        success "No Git SSH URL rewrites to restore"
-    fi
-}
-
 post_install() {
     section "Post-Install Tasks"
 
@@ -1115,11 +1079,25 @@ post_install() {
         echo "    4. Enable 'Launch at Login' in Raycast settings"
     fi
 
-    # Bitwarden setup
+    # Bitwarden + commit signing setup
     echo ""
     if [[ -d "/Applications/Bitwarden.app" ]]; then
-        info "Bitwarden — sign in to desktop app and browser extension"
-        info "  If using SSH agent: Settings → SSH Agent → Enable"
+        info "Bitwarden — set up desktop app + commit signing:"
+        echo ""
+        echo "    1. Open Bitwarden desktop → sign in to your vault"
+        echo "    2. Settings → SSH Agent → Enable (creates ~/.bitwarden-ssh-agent.sock)"
+        echo "    3. New → SSH key → Ed25519 → name it 'Personal Signing Key'"
+        echo "    4. Copy the public key (ssh-ed25519 AAAAC3...)"
+        echo "    5. Upload to GitHub → Settings → SSH and GPG keys:"
+        echo "       - Add as Authentication Key"
+        echo "       - Add as Signing Key"
+        echo "    6. Enable commit signing in your dotfiles:"
+        echo ""
+        echo "       chezmoi init --force    # paste your public key when prompted"
+        echo "       chezmoi apply           # renders signing block in .gitconfig"
+        echo ""
+        echo "    7. Verify: ssh-add -l (should list your key)"
+        echo "       Verify: git commit --allow-empty -m 'test' && git log --show-signature -1"
     fi
 
     # Screen Time app disabling reminder
@@ -1146,7 +1124,7 @@ print_summary() {
 ║  WHAT WAS SET UP:                                                            ║
 ║                                                                              ║
 ║  ✓ Xcode CLI Tools, Homebrew (with PATH configured)                          ║
-║  ✓ GitHub CLI authenticated + git credential helper                          ║
+║  ✓ GitHub CLI authenticated + HTTPS git credential helper                    ║
 ║  ✓ Chezmoi dotfiles cloned, applied, and re-evaluated                        ║
 ║  ✓ All Brewfile packages (CLI tools, casks, fonts, App Store apps)           ║
 ║  ✓ Removed bloatware (GarageBand, iMovie, Keynote, Numbers, Pages)           ║
@@ -1172,13 +1150,15 @@ print_summary() {
 ║  4. Disable built-in apps via Screen Time (see warnings above)               ║
 ║  5. Set up atuin (optional): atuin register OR atuin login                   ║
 ║  6. Set up Raycast as Spotlight replacement (see above)                      ║
-║  7. Sign in to Bitwarden                                                     ║
-║  8. First-launch Neovim: nvim (plugins finish setup)                         ║
+║  7. Sign in to Bitwarden + enable SSH agent                                  ║
+║  8. Set up commit signing (see Bitwarden steps above)                        ║
+║  9. First-launch Neovim: nvim (plugins finish setup)                         ║
 ║                                                                              ║
 ║  USEFUL COMMANDS:                                                            ║
 ║     chezmoi diff              → See pending dotfile changes                  ║
 ║     chezmoi apply             → Apply dotfiles                               ║
 ║     chezmoi update            → Pull & apply latest                          ║
+║     chezmoi init --force      → Re-prompt for data (e.g. signing key)        ║
 ║     brew bundle cleanup       → Remove unlisted packages                     ║
 ║     mise list                 → See installed runtimes                       ║
 ║     generate-completions      → Regenerate zsh completions (in zsh)          ║
@@ -1212,7 +1192,6 @@ main() {
     authenticate_github
     install_chezmoi
     apply_dotfiles
-    disable_git_ssh_rewrites
     ensure_app_management_permission
     install_brewfile
     remove_bloatware
@@ -1227,7 +1206,6 @@ main() {
     install_usql
     setup_completions
     verify_shell_tools
-    restore_git_ssh_rewrites
     post_install
     print_summary
 }

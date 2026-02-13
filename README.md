@@ -10,7 +10,7 @@ The bootstrap script automates the following in order:
 2. Installs Homebrew (with bulletproof PATH setup + temporary `.zprofile` bridge for persistence between runs)
 3. Installs bootstrap dependencies (`gh` and `chezmoi` via Homebrew)
 4. Authenticates with GitHub (browser-based OAuth — no SSH key needed)
-5. Clones dotfiles repo via chezmoi (authentication already handled)
+5. Clones dotfiles repo via chezmoi (HTTPS, credential helper already configured)
 6. Applies dotfiles (places Brewfile, zshrc, mise config, starship config, etc.)
 7. Installs all packages from Brewfile (CLI tools, casks, fonts, App Store apps)
 8. Re-evaluates chezmoi templates (so .gitconfig detects delta, gh, difft, etc.)
@@ -33,7 +33,7 @@ The bootstrap script automates the following in order:
 
 A Mac and a GitHub account. That's it. Everything else is installed by the script.
 
-The script handles GitHub authentication automatically — it installs the GitHub CLI, walks you through browser-based login, and configures git's credential helper before attempting to clone your dotfiles. No SSH keys, personal access tokens, or manual setup required.
+The script handles GitHub authentication automatically — it installs the GitHub CLI, walks you through browser-based login, and configures git's HTTPS credential helper before attempting to clone your dotfiles. No SSH keys, personal access tokens, or manual setup required. SSH keys are optionally used later for commit signing (not transport).
 
 ## Full setup walkthrough
 
@@ -80,8 +80,8 @@ bash bootstrap.sh          # run it
 
 - **Xcode CLI tools** — a system dialog will appear. Click "Install" and wait (2–5 minutes).
 - **Homebrew** — prompts for your password once (needs `sudo` to create `/opt/homebrew`). A temporary `~/.zprofile` is written so `brew` persists on PATH if the script is interrupted and re-run from a new terminal. This file is cleaned up later in the process.
-- **GitHub authentication** — the script installs `gh`, then opens your browser for OAuth login. You'll see a one-time code in the terminal — enter it in the browser to authorize. This takes about 30 seconds. Once authenticated, the script configures git to use `gh` as a credential helper, so all subsequent git operations (including chezmoi's dotfiles clone) work automatically.
-- **Chezmoi prompts** — you'll be asked for your name, email, GitHub username, and preferred editor. These values are stored in `~/.config/chezmoi/chezmoi.toml` and used to template your dotfiles.
+- **GitHub authentication** — the script installs `gh`, then opens your browser for OAuth login. You'll see a one-time code in the terminal — enter it in the browser to authorize. This takes about 30 seconds. Once authenticated, the script configures git to use `gh` as a credential helper, so all git operations over HTTPS (including chezmoi's dotfiles clone, pushes, and pulls) work automatically. No SSH keys or personal access tokens needed.
+- **Chezmoi prompts** — you'll be asked for your name, email, GitHub username, preferred editor, and SSH signing key (press Enter to skip on first run). These values are stored in `~/.config/chezmoi/chezmoi.toml` and used to template your dotfiles.
 - **Brewfile** — first run takes 10–30 minutes depending on your connection. Cask installs may trigger macOS security prompts.
 - **Template re-evaluation** — after the Brewfile installs all tools, chezmoi re-renders templates so your `.gitconfig` picks up delta, gh, difft, and your `.chezmoi.toml` detects cursor/nvim.
 - **Oh-My-Zsh** — installed with `KEEP_ZSHRC=yes` so it doesn't overwrite your chezmoi-managed `.zshrc`.
@@ -141,17 +141,49 @@ atuin login      # log into existing account
 
 Atuin owns `Ctrl-R` (history search). fzf handles `Ctrl-T` (file search) and `Alt-C` (directory jump).
 
-**Bitwarden:**
-- Sign in to the desktop app and browser extension
-- If you use the Bitwarden SSH agent, enable it in Settings → SSH Agent
+**Bitwarden — password manager + commit signing:**
 
-**SSH keys (optional, post-bootstrap):**
+1. Open the Bitwarden desktop app and sign in to your vault
+2. Sign in to the browser extension as well
 
-The bootstrap uses HTTPS for the initial dotfiles clone (via `gh` OAuth). Your `.gitconfig` includes URL rewrites that switch GitHub to SSH for day-to-day work. To enable SSH:
+**Set up SSH commit signing (recommended):**
 
-1. Generate a key: `ssh-keygen -t ed25519 -C "your-email@example.com"`
-2. Add to GitHub: `gh ssh-key add ~/.ssh/id_ed25519.pub --title "MacBook"`
-3. Or use Bitwarden's SSH agent if you prefer managed keys
+The bootstrap uses HTTPS for all git transport (clone, push, pull) via the `gh` credential helper — no SSH keys needed for basic operations. SSH keys are used for *commit signing* to get verified badges on your commits.
+
+```bash
+# Step 1: Enable Bitwarden SSH agent
+# Bitwarden desktop → Settings → SSH Agent → Enable
+# This creates ~/.bitwarden-ssh-agent.sock
+# Your shell already points SSH_AUTH_SOCK at this socket (exports/main.zsh)
+
+# Step 2: Generate a signing key in Bitwarden
+# Bitwarden desktop → New → SSH key → Ed25519
+# Name it clearly: "Personal Signing Key (Ed25519)"
+# Copy the public key (ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI...)
+
+# Step 3: Upload to GitHub (add it TWICE — once for each purpose)
+# GitHub → Settings → SSH and GPG keys → New SSH key
+#   - Type: Authentication Key  → paste public key
+#   - Type: Signing Key         → paste public key
+
+# Step 4: Enable signing in your dotfiles
+chezmoi init --force
+# When prompted for "SSH signing key", paste your public key
+chezmoi apply
+
+# Step 5: Verify
+ssh-add -l                                        # should list your key
+git commit --allow-empty -m "test signing"        # should succeed
+git log --show-signature -1                        # should show "Good signature"
+```
+
+If you use separate GitHub accounts for work and personal, generate a separate key for each in Bitwarden (e.g., "Work Signing Key (Ed25519)"). During `chezmoi init` on each machine, paste the appropriate public key — the `machine_type` variable already supports per-machine differentiation.
+
+**On a new machine**, this is the flow after the bootstrap completes:
+1. Sign in to Bitwarden desktop → enable SSH agent
+2. Your keys are already in the vault, synced from the cloud
+3. Run `chezmoi init --force`, paste the same public key when prompted
+4. Done — the private key never exists as a file on disk
 
 **Karabiner-Elements:**
 - Launch it and approve both the Accessibility and Input Monitoring permission prompts
@@ -215,6 +247,10 @@ nvim --version            # Neovim
 # GitHub auth
 gh auth status            # should show "Logged in"
 
+# Commit signing (if configured)
+ssh-add -l                # should list your signing key (if Bitwarden SSH agent enabled)
+git config --get gpg.format  # should show "ssh" (if signing key was set)
+
 # Dotfiles
 chezmoi status            # should be empty if everything applied
 chezmoi diff              # should show no differences
@@ -242,12 +278,14 @@ dotfiles/
 │   │   ├── completions/.keep       # Static completion files (generated, not tracked)
 │   │   ├── dot_zcompcache/.keep    # Completion cache (generated, not tracked)
 │   │   └── local.zsh               # Machine-specific overrides (not tracked)
+│   ├── git/
+│   │   └── allowed_signers         # SSH signing key → email mapping (templated)
 │   ├── mise/config.toml            # Global language runtimes (node, python, go, rust)
 │   ├── starship.toml               # Prompt theme
 │   ├── nvim/                       # Neovim customizations (overlaid on LazyVim)
 │   ├── aerospace/aerospace.toml    # Tiling window manager
 │   └── karabiner/karabiner.json    # Keyboard customization
-├── dot_gitconfig                   # Git settings
+├── dot_gitconfig                   # Git settings (HTTPS transport, conditional signing)
 ├── dot_ssh/config                  # SSH host configurations
 └── dot_zshenv                      # Sets ZDOTDIR to ~/.config/zsh
 ```
@@ -326,5 +364,11 @@ The `trash` formula is keg-only. Verify `exports/main.zsh` adds `$HOMEBREW_PREFI
 **Completions not working for a tool**
 Run `generate-completions` to regenerate static completion files. If a specific tool still lacks completions, check `$(brew --prefix)/share/zsh/site-functions/` for a `_toolname` file.
 
-**SSH not working for git push after bootstrap**
-The bootstrap uses HTTPS for the initial clone. Your `.gitconfig` rewrites GitHub URLs to SSH, so subsequent operations need an SSH key. See "SSH keys (optional, post-bootstrap)" in Step 6 above.
+**Commit signing not working / "error: Load key" on commit**
+Verify the Bitwarden SSH agent is running and your shell sees the key:
+```bash
+echo $SSH_AUTH_SOCK               # should show ~/.bitwarden-ssh-agent.sock
+ssh-add -l                        # should list your signing key
+git config --get user.signingKey  # should show your public key
+```
+If `SSH_AUTH_SOCK` is empty, ensure Bitwarden desktop is open with SSH Agent enabled and that `exports/main.zsh` has the socket export. If `ssh-add -l` shows nothing, unlock Bitwarden. If signing isn't configured in git, re-run `chezmoi init --force` and paste your public key when prompted.
