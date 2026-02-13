@@ -131,6 +131,17 @@ A few things can't be fully automated:
 
 > **Note:** Raycast uses the Spotlight index for file search — don't disable Spotlight entirely, just its keyboard shortcut.
 
+**Notification sounds:**
+
+The bootstrap disables Messages send/receive sounds via `defaults write`. To silence notification sounds for other apps while keeping banners visible:
+
+1. Open **System Settings → Notifications**
+2. Select each app (Messages, Mail, Slack, Discord, Calendar, etc.)
+3. Toggle off **"Play sound for notifications"**
+
+This can't be automated — macOS stores per-app notification preferences in a protected database.
+
+
 **Atuin — shell history sync:**
 ```bash
 atuin register   # create new account for cross-machine sync

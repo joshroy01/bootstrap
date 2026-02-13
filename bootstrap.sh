@@ -752,6 +752,8 @@ configure_macos_defaults() {
     defaults write NSGlobalDomain NSAutomaticQuoteSubstitutionEnabled -bool false
     defaults write NSGlobalDomain NSAutomaticDashSubstitutionEnabled -bool false
 
+    defaults write com.apple.messageshelper.AlertsController PlaySoundsKey -int 0
+
     # ── Security ────────────────────────────────────────────────────────────
     defaults write com.apple.screensaver askForPassword -int 1
     defaults write com.apple.screensaver askForPasswordDelay -int 0
@@ -1078,6 +1080,14 @@ post_install() {
         echo "    3. Raycast Settings → General → set hotkey to Cmd+Space"
         echo "    4. Enable 'Launch at Login' in Raycast settings"
     fi
+
+    # Notification sounds
+    echo ""
+    info "To silence notification sounds while keeping banners:"
+    echo "    System Settings → Notifications → [each app] → toggle off 'Play sound'"
+    echo "    Focus on: Messages, Mail, Slack, Discord, Calendar"
+    info "  Note: Messages send/receive sounds are already disabled by macOS defaults."
+
 
     # Bitwarden + commit signing setup
     echo ""
