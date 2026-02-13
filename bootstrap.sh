@@ -176,7 +176,7 @@ install_homebrew() {
 }
 
 # ------------------------------------------------------------------------------
-# 4. Bootstrap Dependencies (gh + chezmoi)
+# 4. Bootstrap Dependencies (gh + chezmoi + mas)
 # ------------------------------------------------------------------------------
 
 install_bootstrap_deps() {
@@ -197,6 +197,16 @@ install_bootstrap_deps() {
         brew install chezmoi
     else
         success "Chezmoi already installed"
+    fi
+
+    # mas (Mac App Store CLI) — needed to install Xcode before the Brewfile
+    # runs, since Xcode license acceptance must happen before formulae that
+    # depend on Xcode frameworks (swiftlint, swiftformat, gcc, llvm, etc.).
+    if ! command_exists mas; then
+        info "Installing mas (Mac App Store CLI)..."
+        brew install mas
+    else
+        success "mas already installed"
     fi
 
     # Refresh hash after installing new binaries
@@ -301,7 +311,7 @@ apply_dotfiles() {
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
-# 7b. Ensure Terminal App Management Permission
+# 7a. Ensure Terminal App Management Permission
 # ------------------------------------------------------------------------------
 
 ensure_app_management_permission() {
@@ -343,6 +353,10 @@ ensure_app_management_permission() {
     info "if you plan to run 'brew install --cask' from those terminals."
     info "  System Settings → Privacy & Security → App Management"
 }
+
+# ------------------------------------------------------------------------------
+# 7b. Install Packages from Brewfile
+# ------------------------------------------------------------------------------
 
 install_brewfile() {
     section "Installing Packages from Brewfile"
@@ -399,7 +413,12 @@ install_brewfile() {
         git config --global --unset-all url.git@github.com:.insteadOf
     fi
 
-    brew bundle install --file="$BREWFILE_PATH" --verbose
+    # brew bundle returns non-zero if ANY package fails — even transient
+    # download errors or upstream build issues. We capture the exit code
+    # and report failures without killing the entire bootstrap, since later
+    # stages (macOS defaults, neovim, mise, completions) are independent.
+    local bundle_exit=0
+    brew bundle install --file="$BREWFILE_PATH" --verbose || bundle_exit=$?
 
     # Restore all SSH rewrites now that taps are cloned
     if [[ -n "$ssh_rewrites" ]]; then
@@ -414,7 +433,14 @@ install_brewfile() {
         success "trash (keg-only) installed — PATH handled in exports/main.zsh"
     fi
 
-    success "All packages installed"
+    if [[ $bundle_exit -ne 0 ]]; then
+        warn "brew bundle exited with code $bundle_exit — some packages may have failed."
+        warn "Review the output above and re-run after fixing:"
+        info "  brew bundle install --file=$BREWFILE_PATH --verbose"
+        echo ""
+    else
+        success "All packages installed"
+    fi
 
     # Re-evaluate chezmoi templates now that all tools are installed.
     # First pass rendered templates with a partial toolchain (only gh + chezmoi).
@@ -883,7 +909,29 @@ setup_mise() {
 }
 
 # ------------------------------------------------------------------------------
-# 16. Zsh Completion System
+# 16. Install usql
+# ------------------------------------------------------------------------------
+
+install_usql() {
+    # usql — universal SQL CLI. Installed via go install instead of Homebrew
+    # because the xo/xo tap formula builds with the 'most' tag, which pulls
+    # in cockroachdb/swiss and fails due to Go version incompatibilities.
+    # Base drivers (PostgreSQL, MySQL, SQLite3, MSSQL, Oracle, CSVQ) cover
+    # all databases in our Brewfile.
+    if ! command_exists usql; then
+        info "Installing usql via go install (base drivers)..."
+        go install -tags 'redis mongodb' github.com/xo/usql@master 2>/dev/null && {
+            success "usql installed (base drivers: pg, my, sqlite3, mssql, oracle, csvq)"
+        } || {
+            warn "usql install failed — install manually: go install github.com/xo/usql@master"
+        }
+    else
+        success "usql already installed"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# 17. Zsh Completion System
 # ------------------------------------------------------------------------------
 
 setup_completions() {
@@ -937,7 +985,7 @@ setup_completions() {
 }
 
 # ------------------------------------------------------------------------------
-# 17. Shell Tool Verification
+# 18. Shell Tool Verification
 # ------------------------------------------------------------------------------
 
 verify_shell_tools() {
@@ -981,7 +1029,7 @@ verify_shell_tools() {
 }
 
 # ------------------------------------------------------------------------------
-# 18. Post-Install Hooks
+# 19. Post-Install Hooks
 # ------------------------------------------------------------------------------
 
 post_install() {
@@ -1007,6 +1055,7 @@ post_install() {
         "Raycast.app:Accessibility:System Settings → Privacy & Security → Accessibility"
         "LuLu.app:Network Extension:System Settings → Privacy & Security (requires restart)"
         "Pearcleaner.app:Full Disk Access + Accessibility:System Settings → Privacy & Security"
+        "Logi Options+.app:Input Monitoring:System Settings → Privacy & Security → Input Monitoring"
     )
 
     for entry in "${permission_apps[@]}"; do
@@ -1159,6 +1208,7 @@ main() {
     create_directory_structure
     setup_neovim
     setup_mise
+    install_usql
     setup_completions
     verify_shell_tools
     post_install
