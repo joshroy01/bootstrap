@@ -44,8 +44,6 @@ DOTFILES_REPO="https://github.com/joshroy01/dotfiles.git"
 CHEZMOI_SOURCE="$HOME/.local/share/chezmoi"
 BREWFILE_PATH="$HOME/.config/Brewfile"
 
-export CHEZMOI_NO_PAGER=1
-
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -289,7 +287,7 @@ apply_dotfiles() {
     section "Applying Dotfiles"
 
     info "Running chezmoi apply..."
-    chezmoi apply --verbose
+    chezmoi apply --verbose --no-pager
 
     success "Dotfiles applied"
 
@@ -450,7 +448,7 @@ install_brewfile() {
     # in .chezmoi.toml.tmpl and .gitconfig.tmpl will find them.
     info "Re-evaluating chezmoi templates with full toolchain..."
     chezmoi init --force       # Re-evaluate .chezmoi.toml.tmpl (editor detection)
-    chezmoi apply --verbose    # Re-render .gitconfig.tmpl (delta, gh, difft blocks)
+    chezmoi apply --verbose --no-pager    # Re-render .gitconfig.tmpl (delta, gh, difft blocks)
     success "Dotfiles re-applied (templates now detect delta, gh, cursor, etc.)"
 }
 
@@ -857,7 +855,7 @@ setup_neovim() {
     # Overlay chezmoi customizations if they exist
     if [[ -d "$CHEZMOI_SOURCE/dot_config/nvim" ]]; then
         info "Applying chezmoi nvim customizations..."
-        chezmoi apply --force "$HOME/.config/nvim"
+        chezmoi apply --force --no-pager "$HOME/.config/nvim"
         success "Custom nvim config applied"
     else
         info "No chezmoi nvim customizations found — using starter defaults"
