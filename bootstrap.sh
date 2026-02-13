@@ -52,6 +52,8 @@ BLUE='\033[0;34m'
 BOLD='\033[1m'
 NC='\033[0m'
 
+SSH_REWRITES=""
+
 # ------------------------------------------------------------------------------
 # Helper Functions
 # ------------------------------------------------------------------------------
@@ -306,6 +308,21 @@ apply_dotfiles() {
     done
 }
 
+disable_git_ssh_rewrites() {
+    section "Disabling Git SSH URL Rewrites"
+
+    # Temporarily disable git SSH URL rewrites for Homebrew taps.
+    # The .gitconfig may have multiple insteadOf values under the same
+    # [url] section (e.g., https://github.com/ and gh:), so we must use
+    # --get-all / --unset-all to handle them correctly.
+    SSH_REWRITES=$(git config --global --get-all url.git@github.com:.insteadOf 2>/dev/null || true)
+
+    if [[ -n "$SSH_REWRITES" ]]; then
+        info "Temporarily disabling git SSH URL rewrite for Homebrew taps..."
+        git config --global --unset-all url.git@github.com:.insteadOf
+    fi
+}
+
 # ------------------------------------------------------------------------------
 # 7. Brewfile Installation
 # ------------------------------------------------------------------------------
@@ -401,32 +418,12 @@ install_brewfile() {
     info "Installing packages from Brewfile..."
     info "This may take 10–30 minutes on first run..."
 
-    # Temporarily disable git SSH URL rewrites for Homebrew taps.
-    # The .gitconfig may have multiple insteadOf values under the same
-    # [url] section (e.g., https://github.com/ and gh:), so we must use
-    # --get-all / --unset-all to handle them correctly.
-    local ssh_rewrites
-    ssh_rewrites=$(git config --global --get-all url.git@github.com:.insteadOf 2>/dev/null || true)
-
-    if [[ -n "$ssh_rewrites" ]]; then
-        info "Temporarily disabling git SSH URL rewrite for Homebrew taps..."
-        git config --global --unset-all url.git@github.com:.insteadOf
-    fi
-
     # brew bundle returns non-zero if ANY package fails — even transient
     # download errors or upstream build issues. We capture the exit code
     # and report failures without killing the entire bootstrap, since later
     # stages (macOS defaults, neovim, mise, completions) are independent.
     local bundle_exit=0
     brew bundle install --file="$BREWFILE_PATH" --verbose || bundle_exit=$?
-
-    # Restore all SSH rewrites now that taps are cloned
-    if [[ -n "$ssh_rewrites" ]]; then
-        while IFS= read -r rewrite; do
-            git config --global --add url.git@github.com:.insteadOf "$rewrite"
-        done <<< "$ssh_rewrites"
-        success "Git SSH URL rewrites restored"
-    fi
 
     # Handle keg-only formulae that need PATH
     if brew list trash &>/dev/null 2>&1; then
@@ -450,6 +447,9 @@ install_brewfile() {
     chezmoi init --force       # Re-evaluate .chezmoi.toml.tmpl (editor detection)
     chezmoi apply --verbose --no-pager    # Re-render .gitconfig.tmpl (delta, gh, difft blocks)
     success "Dotfiles re-applied (templates now detect delta, gh, cursor, etc.)"
+
+    info "Re-disabling git SSH URL rewrite for Homebrew taps..."
+    git config --global --unset-all url.git@github.com:.insteadOf
 }
 
 # ------------------------------------------------------------------------------
@@ -1032,6 +1032,21 @@ verify_shell_tools() {
 # 19. Post-Install Hooks
 # ------------------------------------------------------------------------------
 
+restore_git_ssh_rewrites() {
+    section "Restoring Git SSH URL Rewrites"
+
+    # Restore all SSH rewrites now that clones are complete
+    if [[ -n "$SSH_REWRITES" ]]; then
+        info "Restoring Git SSH URL rewrites..."
+        while IFS= read -r rewrite; do
+            git config --global --add url.git@github.com:.insteadOf "$rewrite"
+        done <<< "$SSH_REWRITES"
+        success "Git SSH URL rewrites restored"
+    else
+        success "No Git SSH URL rewrites to restore"
+    fi
+}
+
 post_install() {
     section "Post-Install Tasks"
 
@@ -1197,6 +1212,7 @@ main() {
     authenticate_github
     install_chezmoi
     apply_dotfiles
+    disable_git_ssh_rewrites
     ensure_app_management_permission
     install_brewfile
     remove_bloatware
@@ -1211,6 +1227,7 @@ main() {
     install_usql
     setup_completions
     verify_shell_tools
+    restore_git_ssh_rewrites
     post_install
     print_summary
 }
