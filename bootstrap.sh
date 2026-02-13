@@ -480,38 +480,13 @@ disable_builtin_apps() {
 
     # Clear the Dock entirely and rebuild with only apps we want.
     # This is cleaner than selectively removing entries.
-    info "Rebuilding Dock with preferred apps only..."
+    info "Clearing Dock (no pinned apps)..."
 
     defaults write com.apple.dock persistent-apps -array
-
-    # Add back the apps we actually want in the Dock
-    local dock_apps=(
-        "/Applications/Arc.app"
-        "/System/Applications/System Settings.app"
-        "/Applications/WezTerm.app"
-        "/Applications/Ghostty.app"
-        "/Applications/Cursor.app"
-        "/Applications/Visual Studio Code.app"
-        "/Applications/Obsidian.app"
-        "/Applications/Notion.app"
-        "/Applications/Notion Calendar.app"
-        "/Applications/Readdle Spark.app"
-        "/Applications/Slack.app"
-        "/Applications/Discord.app"
-        "/Applications/Spotify.app"
-        "/Applications/Bitwarden.app"
-    )
-
-    for app_path in "${dock_apps[@]}"; do
-        if [[ -d "$app_path" ]]; then
-            defaults write com.apple.dock persistent-apps -array-add \
-                "<dict><key>tile-data</key><dict><key>file-data</key><dict><key>_CFURLString</key><string>file://${app_path}/</string><key>_CFURLStringType</key><integer>15</integer></dict></dict></dict>"
-        fi
-    done
-
+    defaults write com.apple.dock persistent-others -array
     killall Dock 2>/dev/null || true
 
-    success "Dock rebuilt with preferred apps"
+    success "Dock cleared — no pinned apps"
 
     # Method 2: Screen Time app limits (must be done manually)
     # Screen Time settings are SIP-protected and can't be set via defaults/CLI.
@@ -1138,7 +1113,7 @@ print_summary() {
 ║  ✓ Chezmoi dotfiles cloned, applied, and re-evaluated                        ║
 ║  ✓ All Brewfile packages (CLI tools, casks, fonts, App Store apps)           ║
 ║  ✓ Removed bloatware (GarageBand, iMovie, Keynote, Numbers, Pages)           ║
-║  ✓ Rebuilt Dock with preferred apps, disabled redundant built-in apps        ║
+║  ✓ Cleared Dock (no pinned apps), disabled redundant built-in apps           ║
 ║  ✓ Oh-My-Zsh framework                                                       ║
 ║  ✓ Default shell → Homebrew zsh (ZDOTDIR → ~/.config/zsh)                    ║
 ║  ✓ Cleaned legacy zsh files from $HOME (.zprofile, .zshrc, .zcompdump, etc.) ║

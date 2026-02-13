@@ -15,7 +15,7 @@ The bootstrap script automates the following in order:
 7. Installs all packages from Brewfile (CLI tools, casks, fonts, App Store apps)
 8. Re-evaluates chezmoi templates (so .gitconfig detects delta, gh, difft, etc.)
 9. Removes pre-installed bloatware (GarageBand, iMovie, Keynote, Numbers, Pages + sound libraries)
-10. Disables redundant built-in apps (rebuilds Dock with preferred apps, prints Screen Time guide)
+10. Disables redundant built-in apps (clears Dock, prints Screen Time guide)
 11. Installs Oh-My-Zsh (framework for zsh plugins and completions)
 12. Sets Homebrew zsh as the default shell (with ZDOTDIR → `~/.config/zsh/`)
 13. Cleans up legacy zsh files (`~/.zprofile`, `~/.zshrc`, `~/.zcompdump*`, etc. — superseded by ZDOTDIR config)
@@ -88,7 +88,7 @@ bash bootstrap.sh          # run it
 - **Default shell change** — prompts for your password once (`chsh` requires it).
 - **Legacy zsh cleanup** — removes `~/.zprofile` (Homebrew bridge), `~/.zshrc`, `~/.zcompdump*`, and other zsh files from `$HOME` that are superseded by your ZDOTDIR config in `~/.config/zsh/`.
 - **Bloatware removal** — deletes GarageBand, iMovie, Keynote, Numbers, Pages and their sound libraries. These may return after major macOS updates; re-run to clean up.
-- **Dock rebuild** — the Dock is cleared and rebuilt with your preferred apps only.
+- **Dock rebuild** — the Dock is cleared entirely (no pinned apps). Launch apps via Raycast (`Cmd + Space`) instead.
 - **Neovim plugins** — headless install runs silently. If it has issues, plugins finish installing on first launch.
 
 The script is **idempotent** — you can re-run it safely. It skips steps that are already complete (authenticated, installed, cloned, etc.).
