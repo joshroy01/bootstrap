@@ -44,6 +44,8 @@ DOTFILES_REPO="https://github.com/joshroy01/dotfiles.git"
 CHEZMOI_SOURCE="$HOME/.local/share/chezmoi"
 BREWFILE_PATH="$HOME/.config/Brewfile"
 
+export CHEZMOI_NO_PAGER=1
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
