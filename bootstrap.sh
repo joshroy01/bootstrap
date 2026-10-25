@@ -795,35 +795,21 @@ setup_neovim() {
         return
     fi
 
-    local nvim_config="$HOME/.config/nvim"
-
-    if [[ -d "$nvim_config" ]]; then
-        success "Neovim config already exists at $nvim_config"
-        info "To reset: rm -rf ~/.config/nvim ~/.local/share/nvim ~/.local/state/nvim ~/.cache/nvim"
+    # The whole LazyVim config (init.lua, lua/config/lazy.lua and the customizations)
+    # is managed by chezmoi and was placed by apply_dotfiles(). This step only
+    # installs the plugins it declares.
+    if [[ ! -f "$HOME/.config/nvim/init.lua" ]]; then
+        warn "~/.config/nvim/init.lua not found. Did chezmoi apply correctly? Skipping."
         return
     fi
 
-    info "Cloning LazyVim starter..."
-    git clone https://github.com/LazyVim/starter "$nvim_config"
-    rm -rf "$nvim_config/.git"
-    success "LazyVim starter installed"
-
-    # Overlay chezmoi customizations if they exist
-    if [[ -d "$CHEZMOI_SOURCE/dot_config/nvim" ]]; then
-        info "Applying chezmoi nvim customizations..."
-        chezmoi apply --force --no-pager "$HOME/.config/nvim"
-        success "Custom nvim config applied"
-    else
-        info "No chezmoi nvim customizations found — using starter defaults"
-    fi
-
-    # Headless plugin install
     info "Installing Neovim plugins headlessly..."
-    nvim --headless "+Lazy! sync" +qa 2>/dev/null || {
+    nvim --headless "+Lazy! sync" +qa &>/dev/null || {
         warn "Headless install had issues. Plugins will finish on first launch."
     }
 
-    success "Neovim configured with LazyVim"
+    success "Neovim plugins installed (Mason language tools finish on first launch)"
+    info "To reset plugins: rm -rf ~/.local/share/nvim ~/.local/state/nvim ~/.cache/nvim"
 }
 
 # ------------------------------------------------------------------------------
