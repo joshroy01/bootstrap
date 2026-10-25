@@ -22,8 +22,8 @@ The bootstrap script automates the following in order:
 14. Configures macOS system defaults (Finder, Dock, keyboard, trackpad, screenshots, security)
 15. Sets 24-hour time system-wide (menu bar, lock screen)
 16. Configures power management (battery: 3m display/10m sleep; charger: 15m display/never sleep)
-17. Creates PARA directory structure (`0-inbox` through `4-archive` + Developer workspace)
-18. Installs LazyVim starter and overlays Neovim customizations from dotfiles
+17. Creates PARA directory structure (`0-intake` through `4-archive` + Developer workspace)
+18. Installs Neovim plugins for the LazyVim config that the dotfiles place in `~/.config/nvim`
 19. Installs language runtimes via mise (`~/.config/mise/config.toml`: Node, Python, Go, Rust)
 20. Installs Rust components (rustfmt, clippy, rust-analyzer)
 21. Generates static zsh completion files (gh, chezmoi, just, uv, rustup, cargo, starship, atuin, docker)
@@ -275,31 +275,7 @@ chezmoi diff              # should show no differences
 └── README.md              # This file
 ```
 
-Everything else lives in the [dotfiles repo](https://github.com/joshroy01/dotfiles), managed by chezmoi:
-
-```
-dotfiles/
-├── Brewfile                        # Declarative package list
-├── dot_config/
-│   ├── zsh/
-│   │   ├── .zshrc                  # Main shell config (OMZ + Starship + tools)
-│   │   ├── exports/main.zsh        # PATH, FPATH, env vars
-│   │   ├── aliases/main.zsh        # All aliases + compdef registrations
-│   │   ├── functions/utils.zsh     # Utility functions
-│   │   ├── completions/.keep       # Static completion files (generated, not tracked)
-│   │   ├── dot_zcompcache/.keep    # Completion cache (generated, not tracked)
-│   │   └── local.zsh               # Machine-specific overrides (not tracked)
-│   ├── git/
-│   │   └── allowed_signers         # SSH signing key → email mapping (templated)
-│   ├── mise/config.toml            # Global language runtimes (node, python, go, rust)
-│   ├── starship.toml               # Prompt theme
-│   ├── nvim/                       # Neovim customizations (overlaid on LazyVim)
-│   ├── aerospace/aerospace.toml    # Tiling window manager
-│   └── karabiner/karabiner.json    # Keyboard customization
-├── dot_gitconfig                   # Git settings (HTTPS transport, conditional signing)
-├── dot_ssh/config                  # SSH host configurations
-└── dot_zshenv                      # Sets ZDOTDIR to ~/.config/zsh
-```
+Everything else lives in the [dotfiles repo](https://github.com/joshroy01/dotfiles), managed by chezmoi. Its README lists what it manages and how to work with it day to day.
 
 ## Re-running after changes
 
@@ -313,7 +289,8 @@ If you update your Brewfile:
 
 ```bash
 brew bundle install --file=~/.config/Brewfile    # install new packages
-brew bundle cleanup --file=~/.config/Brewfile    # remove unlisted packages
+brew bundle cleanup --file=~/.config/Brewfile    # preview what's installed but not listed
+# Add --force to uninstall that list. Check it first: it removes everything the Brewfile doesn't name.
 ```
 
 If you install new CLI tools and need completions:

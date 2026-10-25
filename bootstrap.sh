@@ -1106,7 +1106,7 @@ print_summary() {
 ║  ✓ macOS defaults (Finder, Dock, keyboard, trackpad, security)               ║
 ║  ✓ 24-hour time (menu bar, lock screen, system-wide)                         ║
 ║  ✓ Power management (battery: 3m display/10m sleep, charger: 15m/never)      ║
-║  ✓ PARA directory structure (0-inbox through 4-archive + Developer)          ║
+║  ✓ PARA directory structure (0-intake through 4-archive + Developer)         ║
 ║  ✓ Neovim with LazyVim                                                       ║
 ║  ✓ Language runtimes via mise (Node, Python, Go, Rust)                       ║
 ║  ✓ Rust components (rustfmt, clippy, rust-analyzer)                          ║
