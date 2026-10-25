@@ -609,7 +609,7 @@ cleanup_legacy_zsh_files() {
         if [[ -f "$f" ]]; then
             rm -f "$f"
             success "Removed $(basename "$f") (handled by ZDOTDIR config)"
-            ((cleaned++))
+            cleaned=$((cleaned + 1))
         fi
     done
 
@@ -618,7 +618,7 @@ cleanup_legacy_zsh_files() {
         [[ -e "$f" ]] || continue
         rm -f "$f"
         success "Removed $(basename "$f") (stale completion cache)"
-        ((cleaned++))
+        cleaned=$((cleaned + 1))
     done
 
     if [[ $cleaned -eq 0 ]]; then
@@ -907,29 +907,29 @@ setup_completions() {
     local generated=0
 
     if command_exists gh; then
-        gh completion -s zsh > "$comp_dir/_gh" 2>/dev/null && { success "  ✓ gh"; ((generated++)); }
+        gh completion -s zsh > "$comp_dir/_gh" 2>/dev/null && { success "  ✓ gh"; generated=$((generated + 1)); }
     fi
     if command_exists chezmoi; then
-        chezmoi completion zsh > "$comp_dir/_chezmoi" 2>/dev/null && { success "  ✓ chezmoi"; ((generated++)); }
+        chezmoi completion zsh > "$comp_dir/_chezmoi" 2>/dev/null && { success "  ✓ chezmoi"; generated=$((generated + 1)); }
     fi
     if command_exists just; then
-        just --completions zsh > "$comp_dir/_just" 2>/dev/null && { success "  ✓ just"; ((generated++)); }
+        just --completions zsh > "$comp_dir/_just" 2>/dev/null && { success "  ✓ just"; generated=$((generated + 1)); }
     fi
     if command_exists uv; then
-        uv generate-shell-completion zsh > "$comp_dir/_uv" 2>/dev/null && { success "  ✓ uv"; ((generated++)); }
+        uv generate-shell-completion zsh > "$comp_dir/_uv" 2>/dev/null && { success "  ✓ uv"; generated=$((generated + 1)); }
     fi
     if command_exists rustup; then
-        rustup completions zsh > "$comp_dir/_rustup" 2>/dev/null && { success "  ✓ rustup"; ((generated++)); }
-        rustup completions zsh cargo > "$comp_dir/_cargo" 2>/dev/null && { success "  ✓ cargo"; ((generated++)); }
+        rustup completions zsh > "$comp_dir/_rustup" 2>/dev/null && { success "  ✓ rustup"; generated=$((generated + 1)); }
+        rustup completions zsh cargo > "$comp_dir/_cargo" 2>/dev/null && { success "  ✓ cargo"; generated=$((generated + 1)); }
     fi
     if command_exists starship; then
-        starship completions zsh > "$comp_dir/_starship" 2>/dev/null && { success "  ✓ starship"; ((generated++)); }
+        starship completions zsh > "$comp_dir/_starship" 2>/dev/null && { success "  ✓ starship"; generated=$((generated + 1)); }
     fi
     if command_exists atuin; then
-        atuin gen-completions --shell zsh --out-dir "$comp_dir" 2>/dev/null && { success "  ✓ atuin"; ((generated++)); }
+        atuin gen-completions --shell zsh --out-dir "$comp_dir" 2>/dev/null && { success "  ✓ atuin"; generated=$((generated + 1)); }
     fi
     if command_exists docker; then
-        docker completion zsh > "$comp_dir/_docker" 2>/dev/null && { success "  ✓ docker"; ((generated++)); }
+        docker completion zsh > "$comp_dir/_docker" 2>/dev/null && { success "  ✓ docker"; generated=$((generated + 1)); }
     fi
 
     # Clear stale completion cache
